@@ -1,0 +1,12 @@
+{
+  "name": "tiko",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Evidence-first market analysis MVP",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/tradeplan.test.js"
+  }
+}

@@ -25,6 +25,18 @@ Then open `http://localhost:8000`.
 Live requests go to public APIs from your browser. If a request fails or is rate-limited, the app
 falls back to a clearly labeled synthetic sample and tells you why.
 
+## Tests
+
+The action-plan suite runs on Node's built-in test runner (Node 20+) with no dependencies:
+
+```bash
+node --test tests/tradeplan.test.js
+# or: npm test (when Node is on PATH)
+```
+
+It covers the long/short state machine, directional copy, sample practice mode, determinism,
+stop buffers, fixed-fractional sizing and account caps, warnings, and EN/ES key coverage.
+
 ## What is in the MVP
 
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
