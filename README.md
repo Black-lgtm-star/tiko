@@ -4,6 +4,8 @@
 
 A zero-build, zero-dependency web app that produces the same structured read for every market:
 snapshot, context, bull/bear evidence, key levels, conditional scenarios, risks and sources.
+It also turns that read into a conditional **action plan** — trigger, invalidation, target,
+reward-to-risk and risk-based position sizing — recomputed from the live price for crypto.
 It is informational only. It does not place trades, connect to brokers, or issue predictions.
 
 ## Run it
@@ -38,6 +40,12 @@ falls back to a clearly labeled synthetic sample and tells you why.
   5. Scenarios, each with trigger, what strengthens it, and invalidation
   6. Risks (data limits, missing feeds, model caveats)
   7. Sources (provider, retrieval time, series end, method)
+- **Action plan** — a deterministic, conditional plan derived from the same facts: wait / unconfirmed /
+  active / extended / invalidated / no-trade states, the level that activates it, the invalidation,
+  the target, reward-to-risk, a confirmation checklist and risk-based sizing
+  (account size × risk % ÷ distance to invalidation). Crypto plans re-check the live spot quote every
+  60 seconds (paused while the tab is hidden, a dialog is open or the card has focus). No order is
+  ever placed.
 - **Six lenses** — Day, Swing, Long term, Options, FX & futures, Beginner. They are tailored views of
   the same core read, not separate products. Each lens re-weights what is emphasized.
 - **Settings** — profile chips, default lens, language (English/Spanish), data mode (`auto` / `sample`),
@@ -84,6 +92,7 @@ js/indicators.js    SMA, RSI(14), ATR, realized volatility, pivots, drawdown
 js/catalog.js       supported assets, search, sample-series parameters
 js/data.js          providers, caching, fallback, overview/quotes, resolution
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
+js/tradeplan.js     conditional action plan, state machine, position sizing
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
 js/views/*.js       onboarding, dashboard, analysis, settings
@@ -93,8 +102,12 @@ js/app.js           shell, hash router, language refresh, boot
 Data flow: `views → data.getMarketData(asset, {timeframe}) → {asset, candles, quote, meta}`.
 `meta` carries `dataMode`, provider URLs, timestamps, interval, bar count and fallback reasons.
 The analysis engine is deterministic: it computes indicators locally, scores evidence for and
-against, derives levels from structure, and generates scenarios and risks. No LLM is involved and
-nothing is sent to a server by this app.
+against, derives levels from structure, and generates scenarios and risks. `tradeplan.build` is a
+pure function of those facts plus an optional live price, so the same inputs always produce the same
+plan. No LLM is involved and nothing is sent to a server by this app. Account size and risk
+percentage are stored only in `gt.settings.v1`; the plan never sends an order anywhere.
+
+Storage keys: `gt.settings.v1` also holds `accountSize` and `riskPct` for the sizing calculator.
 
 Routes: `#/`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
@@ -141,5 +154,6 @@ news/event feeds, options chains, fundamental valuation data.
 ## Disclaimer
 
 Informational only. This is a description of a market setup produced by fixed rules, not investment
-advice, a recommendation, or a guarantee. Data may be delayed, incomplete or — where labeled —
-synthetic. You are responsible for your decisions.
+advice, a recommendation, or a guarantee. The action plan is a conditional read of levels, trend and
+volume — not a recommendation, a forecast, or an order. Data may be delayed, incomplete or — where
+labeled — synthetic. You are responsible for your decisions.

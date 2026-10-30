@@ -454,6 +454,8 @@
       vol30Text: U.isNum(vol30) ? fmtPct(vol30, false, 0) : '—',
       volPctRank: volPctRank,
       volPctText: volPctRank != null ? String(Math.round(volPctRank * 100)) : '—',
+      atr: atrLast,
+      atrPctNum: atrPct,
       atrText: U.isNum(atrLast) ? fmtP(atrLast, lang) : '—',
       atrPctText: U.isNum(atrPct) ? fmtPct(atrPct, false) : '—',
       relVol: relVol,

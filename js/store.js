@@ -20,7 +20,9 @@
     language: 'en',
     defaultStyle: 'swing',
     dataMode: 'auto',
-    avKey: ''
+    avKey: '',
+    accountSize: 10000,
+    riskPct: 1
   };
 
   var settings = Object.assign({}, defaults, U.loadJSON(KEYS.settings, {}));
@@ -156,7 +158,7 @@
     exportFeedback: function () {
       return JSON.stringify({
         exportedAt: new Date().toISOString(),
-        app: 'Groundtruth MVP',
+        app: 'Tiko MVP',
         note: 'Locally collected feedback. No analytics backend is connected.',
         items: feedback.slice().reverse()
       }, null, 2);

@@ -101,6 +101,250 @@
       '</section>';
   }
 
+  /* ---------------- action plan ---------------- */
+  var planLiveStop = null;
+
+  function stopPlanLive() {
+    if (planLiveStop) { planLiveStop(); planLiveStop = null; }
+  }
+
+  function planBadges(plan) {
+    var stateCls = {
+      wait: 'badge-neutral',
+      triggered: 'badge-sample',
+      in_play: plan.side === 'long' ? 'badge-bull' : plan.side === 'short' ? 'badge-bear' : 'badge-neutral',
+      extended: 'badge-sample',
+      invalidated: 'badge-bear',
+      no_edge: 'badge-neutral',
+      practice: 'badge-sample'
+    };
+    var sideCls = plan.side === 'long' ? 'badge-bull' : plan.side === 'short' ? 'badge-bear' : 'badge-neutral';
+    var dataCls = plan.dataKey === 'plan.data.live' ? 'badge-live' : plan.sample ? 'badge-sample' : 'badge-neutral';
+    var html = '<span class="badge ' + (stateCls[plan.state] || 'badge-neutral') + '">' +
+      esc(T('plan.state.' + plan.state)) + '</span>';
+    if (plan.side !== 'none') html += '<span class="badge ' + sideCls + '">' + esc(T('plan.side.' + plan.side)) + '</span>';
+    if (plan.setup && plan.setup !== 'none') {
+      html += '<span class="badge badge-neutral">' + esc(T('plan.setup.' + plan.setup)) + '</span>';
+    }
+    html += '<span class="badge ' + dataCls + '"><i class="plan-dot"></i>' + esc(T(plan.dataKey)) + '</span>';
+    return html;
+  }
+
+  function planCell(label, value, note, cls) {
+    return '<div class="plan-level ' + (cls || '') + '">' +
+      '<span class="k">' + esc(label) + '</span>' +
+      '<span class="v mono">' + esc(value) + '</span>' +
+      (note ? '<span class="n">' + esc(note) + '</span>' : '') +
+    '</div>';
+  }
+
+  function planLevelsHtml(plan) {
+    if (plan.state === 'no_edge') {
+      var ds = U.isNum(plan.s1) ? Math.abs(plan.price - plan.s1) / plan.atr : null;
+      var dr = U.isNum(plan.r1) ? Math.abs(plan.r1 - plan.price) / plan.atr : null;
+      return '<div class="plan-levels">' +
+        planCell(T('plan.levels.support'), plan.s1Text, ds != null ? T('plan.atrDist', { d: ds.toFixed(1) }) : '', 'sup') +
+        planCell(T('plan.levels.resistance'), plan.r1Text, dr != null ? T('plan.atrDist', { d: dr.toFixed(1) }) : '', 'res') +
+      '</div>';
+    }
+    var entryLabel, entryNote;
+    if (plan.state === 'invalidated') {
+      entryLabel = T('plan.levels.reclaim');
+      entryNote = T('plan.levels.ifReclaimed');
+    } else if (plan.state === 'extended') {
+      entryLabel = T('plan.levels.last');
+      entryNote = T('plan.levels.noEntry');
+    } else if (plan.entryBasis === 'last') {
+      entryLabel = T('plan.levels.entry');
+      entryNote = T('plan.levels.liveNote');
+    } else {
+      entryLabel = T('plan.levels.triggerEntry');
+      entryNote = T('plan.levels.ifTriggered');
+    }
+    var stopPct = plan.entry && plan.stop ? (plan.stop / plan.entry - 1) * 100 : null;
+    var targetPct = plan.entry && plan.target ? (plan.target / plan.entry - 1) * 100 : null;
+    return '<div class="plan-levels">' +
+      planCell(entryLabel, plan.entryText, entryNote, 'entry') +
+      planCell(T('plan.levels.invalidation'), plan.stopText,
+        stopPct != null ? U.fmtPct(stopPct, { sign: true }) : '', 'stop') +
+      planCell(T('plan.levels.target'), plan.targetText,
+        targetPct != null ? U.fmtPct(targetPct, { sign: true }) : '', 'target') +
+      planCell(T('plan.levels.rr'), plan.rrText, '', 'rr') +
+    '</div>';
+  }
+
+  function planSizeCell(label, value) {
+    return '<div class="plan-size-cell"><span class="k">' + esc(label) + '</span>' +
+      '<span class="v mono">' + esc(value) + '</span></div>';
+  }
+
+  function planSizeOutHtml(plan, settings) {
+    var sz = TA.tradeplan.size(plan, settings);
+    if (!sz) return '<div class="tiny muted">' + esc(T('plan.size.invalid')) + '</div>';
+    var money = function (v) { return U.fmtPrice(v, '$', lang()); };
+    var units = U.fmtNum(sz.units, lang(), sz.units >= 1 ? 2 : 6);
+    return '<div class="plan-size-cells">' +
+      planSizeCell(T('plan.size.maxLoss'), money(sz.maxLoss)) +
+      planSizeCell(T('plan.size.units'), units) +
+      planSizeCell(T('plan.size.notional'), money(sz.notional)) +
+    '</div>' +
+    '<div class="tiny muted plan-per-unit">' + esc(T('plan.size.perUnit', { v: money(sz.perUnit) })) + '</div>' +
+    (sz.capped ? '<div class="plan-cap">' + ui.icon('warning', 11) + ' ' + esc(T('plan.size.capped')) + '</div>' : '');
+  }
+
+  function planSizingHtml(plan) {
+    if (!plan.sizeAllowed) {
+      return '<div class="plan-size off">' + ui.icon('info', 14) + '<span>' +
+        esc(T(plan.sizeHiddenKey || 'plan.size.hidden.noEdge')) + '</span></div>';
+    }
+    var s = TA.store.settings();
+    var acc = s.accountSize != null ? s.accountSize : 10000;
+    var risk = s.riskPct != null ? s.riskPct : 1;
+    return '<div class="plan-size">' +
+      '<div class="plan-size-top">' +
+        '<div><span class="eyebrow">' + esc(T('plan.size.title')) + '</span>' +
+          '<div class="tiny muted">' + esc(T('plan.size.sub')) + '</div></div>' +
+        '<div class="plan-size-inputs">' +
+          '<label><span>' + esc(T('plan.size.account')) + '</span>' +
+            '<input class="input" type="number" inputmode="decimal" min="0" step="100" data-size-account value="' + U.attr(String(acc)) + '"></label>' +
+          '<label><span>' + esc(T('plan.size.risk')) + '</span>' +
+            '<input class="input" type="number" inputmode="decimal" min="0.1" max="100" step="0.1" data-size-risk value="' + U.attr(String(risk)) + '"></label>' +
+        '</div>' +
+      '</div>' +
+      '<div class="plan-size-out" data-size-out>' + planSizeOutHtml(plan, s) + '</div>' +
+      '<p class="tiny muted plan-size-note">' +
+        esc(T(plan.state === 'wait' ? 'plan.size.noteWait' : 'plan.size.note')) + '</p>' +
+    '</div>';
+  }
+
+  function planChecksHtml(plan) {
+    if (!plan.checks || !plan.checks.length) return '';
+    if (plan.state === 'invalidated' || plan.state === 'extended') return '';
+    return '<div class="plan-checks" role="list" aria-label="' + U.attr(T('plan.checks.label')) + '">' +
+      plan.checks.map(function (c) {
+        return '<span class="plan-check ' + (c.ok ? 'ok' : '') + '" role="listitem">' +
+          ui.icon(c.ok ? 'check' : 'close', 11) + ' ' + esc(T(c.key, c.params)) + '</span>';
+      }).join('') +
+    '</div>';
+  }
+
+  function planBodyHtml(plan) {
+    var tone = plan.side === 'long' ? 'up' : plan.side === 'short' ? 'down' : 'flat';
+    var chgBadge = U.isNum(plan.changePct)
+      ? '<span class="badge ' + (plan.changePct > 0 ? 'badge-bull' : plan.changePct < 0 ? 'badge-bear' : 'badge-neutral') + '">' +
+        esc(U.fmtPct(plan.changePct, { sign: true })) + '</span>'
+      : '';
+    return '<div class="plan-body">' +
+      '<div class="plan-badges">' + planBadges(plan) + '</div>' +
+      '<div class="plan-grid">' +
+        '<div class="plan-call">' +
+          '<div class="plan-quote"><span class="k">' + esc(T('plan.now')) + '</span>' +
+            '<span class="mono">' + esc(plan.priceText) + '</span>' + chgBadge + '</div>' +
+          '<p class="plan-action ' + tone + '">' + esc(T(plan.actionKey, plan.actionParams)) + '</p>' +
+          '<ul class="plan-reasons">' + plan.reasons.map(function (r) {
+            return '<li>' + esc(T(r.key, r.params)) + '</li>';
+          }).join('') + '</ul>' +
+          (plan.warnings.length
+            ? '<div class="plan-warns">' + plan.warnings.map(function (k) {
+              return '<span class="plan-warn">' + ui.icon('warning', 11) + ' ' + esc(T(k)) + '</span>';
+            }).join('') + '</div>'
+            : '') +
+        '</div>' +
+        planLevelsHtml(plan) +
+      '</div>' +
+      planSizingHtml(plan) +
+      planChecksHtml(plan) +
+      '<div class="plan-foot">' +
+        '<span class="data-stamp">' + ui.icon('clock', 12) + ' ' +
+          esc(T('plan.asOf', { time: U.fmtDateTime(plan.asOf, lang()) })) + '</span>' +
+        '<span class="data-stamp">' + esc(T('plan.foot')) + '</span>' +
+      '</div>' +
+      '<p class="tiny muted plan-disclaim">' + esc(T('plan.disclaim')) + '</p>' +
+    '</div>';
+  }
+
+  function planCard(entry) {
+    var plan = entry.plan;
+    if (!plan) return '';
+    return '<section class="card plan" data-plan aria-labelledby="plan-title">' +
+      '<div class="plan-head">' +
+        '<div class="titles">' +
+          '<div class="eyebrow">' + esc(T('plan.eyebrow')) + '</div>' +
+          '<h2 id="plan-title">' + ui.icon('target', 16) + ' ' + esc(T('plan.title')) + '</h2>' +
+          '<p>' + esc(T('plan.sub')) + '</p>' +
+        '</div>' +
+      '</div>' +
+      '<div data-plan-body>' + planBodyHtml(plan) + '</div>' +
+    '</section>';
+  }
+
+  function bindPlan(root, entry, style) {
+    var card = root.querySelector('[data-plan]');
+    if (!card) return;
+    stopPlanLive();
+
+    var timer = null;
+    var visHandler = null;
+    var alive = true;
+
+    function stop() {
+      alive = false;
+      if (timer) { clearInterval(timer); timer = null; }
+      if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
+    }
+
+    function repaint() {
+      var body = root.querySelector('[data-plan-body]');
+      if (body) body.innerHTML = planBodyHtml(entry.plan);
+    }
+
+    function poll() {
+      if (!alive || !card.isConnected) { stop(); return; }
+      if (document.hidden || document.querySelector('.modal-backdrop')) return;
+      if (card.contains(document.activeElement)) return;
+      var asset = entry.a.asset;
+      if (!asset || asset.assetClass !== 'crypto') { stop(); return; }
+      if (TA.store.settings().dataMode === 'sample') return;
+      TA.data.getQuotes([{ symbol: asset.symbol, assetClass: 'crypto', coingeckoId: asset.coingeckoId || null }])
+        .then(function (res) {
+          if (!alive || !card.isConnected) return;
+          var q = res && res[asset.symbol];
+          if (!q || q.dataMode !== 'live' || !U.isNum(q.price) || !entry.plan) return;
+          if (entry.plan.live && q.price === entry.plan.price) return;
+          entry.plan = TA.tradeplan.build(entry.a, {
+            lang: lang(), style: style,
+            price: q.price, changePct: q.changePct, live: true,
+            asOf: q.asOf || Date.now()
+          });
+          repaint();
+        })
+        .catch(function () {});
+    }
+
+    U.on(card, 'input', '[data-size-account], [data-size-risk]', function () {
+      var accEl = root.querySelector('[data-size-account]');
+      var riskEl = root.querySelector('[data-size-risk]');
+      if (!accEl || !riskEl || !entry.plan) return;
+      var acc = Number(accEl.value);
+      var risk = Number(riskEl.value);
+      var s = TA.store.settings();
+      s.accountSize = acc > 0 ? acc : 0;
+      s.riskPct = risk > 0 ? Math.min(risk, 100) : 0;
+      var out = root.querySelector('[data-size-out]');
+      if (out) out.innerHTML = planSizeOutHtml(entry.plan, s);
+      var patch = {};
+      if (acc > 0) patch.accountSize = acc;
+      if (risk > 0) patch.riskPct = Math.min(risk, 100);
+      if (Object.keys(patch).length) TA.store.updateSettings(patch);
+    });
+
+    visHandler = function () { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', visHandler);
+    planLiveStop = stop;
+    setTimeout(poll, 500);
+    timer = setInterval(poll, 60000);
+  }
+
   /* ---------------- data banners ---------------- */
   function dataBanners(a) {
     var m = a.meta;
@@ -539,6 +783,7 @@
       dataBanners(a) +
       '<div style="margin-top:18px"></div>' +
       snapshotSection(a) +
+      planCard(entry) +
       lensSection(a, style) +
       contextSection(a) +
       casesSection(a) +
@@ -584,6 +829,7 @@
   /* ---------------- bindings ---------------- */
   function bind(root, entry, style, reload) {
     var a = entry.a;
+    bindPlan(root, entry, style);
     root.addEventListener('click', function (e) {
       if (e.target.closest('[data-open-legal]')) { e.preventDefault(); ui.legalModal(); }
       if (e.target.closest('[data-open-glossary]')) { e.preventDefault(); ui.glossaryModal(); }
@@ -654,6 +900,7 @@
 
   /* ---------------- render ---------------- */
   function render(root, params) {
+    stopPlanLive();
     var settings = TA.store.settings();
     var style = STYLES.indexOf(params.style) >= 0 ? params.style : settings.defaultStyle;
     if (STYLES.indexOf(style) < 0) style = 'swing';
@@ -685,6 +932,7 @@
           meta: payload.meta, lang: lang()
         });
         var entry = { payload: payload, a: a, ts: Date.now() };
+        entry.plan = TA.tradeplan.build(a, { lang: lang(), style: style });
         cache[key] = entry;
         TA.store.addRecent({
           symbol: a.asset.symbol, assetClass: a.asset.assetClass, name: a.asset.name,
