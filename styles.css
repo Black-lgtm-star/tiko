@@ -1,5 +1,5 @@
 /* ============================================================
-   Groundtruth — evidence-first market analysis
+   TIKO — evidence-first market analysis
    Design tokens
    ============================================================ */
 :root {
@@ -705,6 +705,19 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .plan-level.sup .v { color: var(--bull); }
 .plan-level.res .v { color: var(--bear); }
 .plan-level.rr .v { color: var(--accent); }
+.plan-levels-edit { margin-top: 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--bg-soft); padding: 10px 12px; }
+.plan-levels-edit-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.plan-levels-custom { font-size: 10px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-line); border-radius: 999px; padding: 2px 7px; }
+.plan-levels-custom[hidden] { display: none; }
+.plan-levels-edit-row { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.plan-levels-edit-row label { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 96px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted-2); font-weight: 620; }
+.plan-levels-edit-row .input { width: 100%; height: 32px; padding: 0 9px; font-size: 12.5px; }
+.plan-levels-reset { flex: none; height: 32px; }
+.plan-levels-reset[hidden] { display: none; }
+.plan-levels-hint { margin-top: 8px; line-height: 1.45; }
+.plan-levels-errors { display: grid; gap: 4px; margin-top: 6px; }
+.plan-levels-errors:empty { display: none; }
+.plan-levels-error { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--bear); }
 .plan-size { margin-top: 16px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--bg-soft); padding: 13px 14px; }
 .plan-size.off { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); background: transparent; border-style: dashed; }
 .plan-size.off svg { color: var(--muted-2); flex: none; }
@@ -793,6 +806,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   .plan-size-inputs label { flex: 1; }
   .plan-size-inputs .input { width: 100%; }
   .plan-size-cells { grid-template-columns: 1fr; gap: 7px; }
+  .plan-levels-edit-row .plan-levels-reset { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }

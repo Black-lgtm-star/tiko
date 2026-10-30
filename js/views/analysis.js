@@ -138,7 +138,7 @@
     '</div>';
   }
 
-  function planLevelsHtml(plan) {
+  function planLevelsGridHtml(plan) {
     if (plan.state === 'no_edge') {
       var ds = U.isNum(plan.s1) ? Math.abs(plan.price - plan.s1) / plan.atr : null;
       var dr = U.isNum(plan.r1) ? Math.abs(plan.r1 - plan.price) / plan.atr : null;
@@ -171,6 +171,42 @@
         targetPct != null ? U.fmtPct(targetPct, { sign: true }) : '', 'target') +
       planCell(T('plan.levels.rr'), plan.rrText, '', 'rr') +
     '</div>';
+  }
+
+  function levelInputValue(v) {
+    if (!U.isNum(v)) return '';
+    return String(Number(v.toFixed(U.priceDecimals(v))));
+  }
+
+  function planLevelsEditHtml(plan) {
+    if (!plan.sizeAllowed || !U.isNum(plan.entry) || (plan.side !== 'long' && plan.side !== 'short')) return '';
+    var custom = plan.customStop || plan.customTarget;
+    var stopVal = plan.customStop && U.isNum(plan.stop) ? String(plan.stop) : '';
+    var targetVal = plan.customTarget && U.isNum(plan.target) ? String(plan.target) : '';
+    return '<div class="plan-levels-edit" data-level-edit>' +
+      '<div class="plan-levels-edit-head">' +
+        '<span class="eyebrow">' + esc(T('plan.levels.editTitle')) + '</span>' +
+        '<span class="plan-levels-custom" data-level-custom' + (custom ? '' : ' hidden') + '>' +
+          esc(T('plan.levels.custom')) + '</span>' +
+      '</div>' +
+      '<div class="plan-levels-edit-row">' +
+        '<label><span>' + esc(T('plan.levels.stopInput')) + '</span>' +
+          '<input class="input" type="number" inputmode="decimal" min="0" step="any" data-level-stop placeholder="' +
+            U.attr(levelInputValue(plan.suggestedStop)) + '" value="' + U.attr(stopVal) + '"></label>' +
+        '<label><span>' + esc(T('plan.levels.targetInput')) + '</span>' +
+          '<input class="input" type="number" inputmode="decimal" min="0" step="any" data-level-target placeholder="' +
+            U.attr(levelInputValue(plan.suggestedTarget)) + '" value="' + U.attr(targetVal) + '"></label>' +
+        '<button type="button" class="btn btn-sm plan-levels-reset" data-level-reset' +
+          (custom ? '' : ' hidden') + '>' + esc(T('plan.levels.reset')) + '</button>' +
+      '</div>' +
+      '<p class="tiny muted plan-levels-hint">' + esc(T('plan.levels.editHint')) + ' ' +
+        esc(T('plan.levels.suggested', { s: plan.suggestedStopText, t: plan.suggestedTargetText })) + '</p>' +
+      '<div class="plan-levels-errors" data-level-errors aria-live="polite"></div>' +
+    '</div>';
+  }
+
+  function planLevelsHtml(plan) {
+    return '<div data-levels-grid>' + planLevelsGridHtml(plan) + '</div>' + planLevelsEditHtml(plan);
   }
 
   function planSizeCell(label, value) {
@@ -228,6 +264,16 @@
     '</div>';
   }
 
+  function levelErrorsHtml(errors) {
+    var keys = [];
+    if (errors && errors.stop) keys.push(errors.stop);
+    if (errors && errors.target) keys.push(errors.target);
+    if (!keys.length) return '';
+    return keys.map(function (k) {
+      return '<span class="plan-levels-error">' + ui.icon('warning', 11) + ' ' + esc(T(k)) + '</span>';
+    }).join('');
+  }
+
   function planBodyHtml(plan) {
     var tone = plan.side === 'long' ? 'up' : plan.side === 'short' ? 'down' : 'flat';
     var chgBadge = U.isNum(plan.changePct)
@@ -253,7 +299,7 @@
         planLevelsHtml(plan) +
       '</div>' +
       planSizingHtml(plan) +
-      planChecksHtml(plan) +
+      '<div data-plan-checks>' + planChecksHtml(plan) + '</div>' +
       '<div class="plan-foot">' +
         '<span class="data-stamp">' + ui.icon('clock', 12) + ' ' +
           esc(T('plan.asOf', { time: U.fmtDateTime(plan.asOf, lang()) })) + '</span>' +
@@ -278,11 +324,16 @@
     '</section>';
   }
 
+  function planLevelsKey(a, style) {
+    return [a.asset.symbol, a.asset.assetClass, style].join('|');
+  }
+
   function bindPlan(root, entry, style) {
     var card = root.querySelector('[data-plan]');
     if (!card) return;
     stopPlanLive();
 
+    var levelKey = planLevelsKey(entry.a, style);
     var timer = null;
     var visHandler = null;
     var alive = true;
@@ -296,6 +347,48 @@
     function repaint() {
       var body = root.querySelector('[data-plan-body]');
       if (body) body.innerHTML = planBodyHtml(entry.plan);
+    }
+
+    function paintRegions() {
+      var plan = entry.plan;
+      if (!plan) return;
+      var grid = root.querySelector('[data-levels-grid]');
+      if (grid) grid.innerHTML = planLevelsGridHtml(plan);
+      var checks = root.querySelector('[data-plan-checks]');
+      if (checks) checks.innerHTML = planChecksHtml(plan);
+      var out = root.querySelector('[data-size-out]');
+      if (out) out.innerHTML = planSizeOutHtml(plan, TA.store.settings());
+      var errEl = root.querySelector('[data-level-errors]');
+      if (errEl) errEl.innerHTML = levelErrorsHtml(plan.levelErrors);
+      var custom = !!(plan.customStop || plan.customTarget);
+      var badge = root.querySelector('[data-level-custom]');
+      if (badge) badge.hidden = !custom;
+      var reset = root.querySelector('[data-level-reset]');
+      if (reset) reset.hidden = !custom;
+    }
+
+    function applyLevelEdits() {
+      var stopEl = root.querySelector('[data-level-stop]');
+      var targetEl = root.querySelector('[data-level-target]');
+      if (!stopEl || !targetEl || !entry.plan) return;
+      var levels = {};
+      var stopRaw = stopEl.value.trim();
+      var targetRaw = targetEl.value.trim();
+      if (stopRaw !== '') levels.stop = Number(stopRaw);
+      if (targetRaw !== '') levels.target = Number(targetRaw);
+      var prev = entry.plan;
+      entry.plan = TA.tradeplan.build(entry.a, {
+        lang: lang(), style: style, levels: levels,
+        price: prev.live ? prev.price : undefined,
+        changePct: prev.live ? prev.changePct : undefined,
+        live: prev.live,
+        asOf: prev.live ? prev.asOf : undefined
+      });
+      TA.store.setPlanLevels(levelKey, {
+        stop: entry.plan.customStop ? entry.plan.stop : null,
+        target: entry.plan.customTarget ? entry.plan.target : null
+      });
+      paintRegions();
     }
 
     function poll() {
@@ -314,12 +407,24 @@
           entry.plan = TA.tradeplan.build(entry.a, {
             lang: lang(), style: style,
             price: q.price, changePct: q.changePct, live: true,
-            asOf: q.asOf || Date.now()
+            asOf: q.asOf || Date.now(),
+            levels: TA.store.getPlanLevels(levelKey)
           });
           repaint();
         })
         .catch(function () {});
     }
+
+    U.on(card, 'input', '[data-level-stop], [data-level-target]', applyLevelEdits);
+
+    U.on(card, 'click', '[data-level-reset]', function () {
+      TA.store.clearPlanLevels(levelKey);
+      var stopEl = root.querySelector('[data-level-stop]');
+      var targetEl = root.querySelector('[data-level-target]');
+      if (stopEl) stopEl.value = '';
+      if (targetEl) targetEl.value = '';
+      applyLevelEdits();
+    });
 
     U.on(card, 'input', '[data-size-account], [data-size-risk]', function () {
       var accEl = root.querySelector('[data-size-account]');
@@ -932,7 +1037,10 @@
           meta: payload.meta, lang: lang()
         });
         var entry = { payload: payload, a: a, ts: Date.now() };
-        entry.plan = TA.tradeplan.build(a, { lang: lang(), style: style });
+        entry.plan = TA.tradeplan.build(a, {
+          lang: lang(), style: style,
+          levels: TA.store.getPlanLevels(planLevelsKey(a, style))
+        });
         cache[key] = entry;
         TA.store.addRecent({
           symbol: a.asset.symbol, assetClass: a.asset.assetClass, name: a.asset.name,

@@ -7,7 +7,8 @@
     watchlist: 'gt.watchlist.v1',
     recents: 'gt.recents.v1',
     notes: 'gt.notes.v1',
-    feedback: 'gt.feedback.v1'
+    feedback: 'gt.feedback.v1',
+    planLevels: 'gt.planlevels.v1'
   };
 
   var defaults = {
@@ -30,6 +31,7 @@
   var recents = U.loadJSON(KEYS.recents, []);
   var notes = U.loadJSON(KEYS.notes, {});
   var feedback = U.loadJSON(KEYS.feedback, []);
+  var planLevels = U.loadJSON(KEYS.planLevels, {});
   var listeners = [];
 
   function emit() {
@@ -145,6 +147,27 @@
     },
     feedbackCount: function () { return feedback.length; },
 
+    /* ---------- custom plan levels ---------- */
+    getPlanLevels: function (key) {
+      var v = planLevels[key];
+      return v ? { stop: v.stop, target: v.target } : null;
+    },
+    setPlanLevels: function (key, levels) {
+      var clean = {};
+      if (U.isNum(levels.stop) && levels.stop > 0) clean.stop = levels.stop;
+      if (U.isNum(levels.target) && levels.target > 0) clean.target = levels.target;
+      if (clean.stop == null && clean.target == null) delete planLevels[key];
+      else planLevels[key] = clean;
+      U.saveJSON(KEYS.planLevels, planLevels);
+      emit();
+    },
+    clearPlanLevels: function (key) {
+      if (!planLevels[key]) return;
+      delete planLevels[key];
+      U.saveJSON(KEYS.planLevels, planLevels);
+      emit();
+    },
+
     /* ---------- maintenance ---------- */
     resetAll: function () {
       Object.keys(KEYS).forEach(function (k) { U.remove(KEYS[k]); });
@@ -153,12 +176,13 @@
       recents = [];
       notes = {};
       feedback = [];
+      planLevels = {};
       emit();
     },
     exportFeedback: function () {
       return JSON.stringify({
         exportedAt: new Date().toISOString(),
-        app: 'Tiko MVP',
+        app: 'TIKO MVP',
         note: 'Locally collected feedback. No analytics backend is connected.',
         items: feedback.slice().reverse()
       }, null, 2);

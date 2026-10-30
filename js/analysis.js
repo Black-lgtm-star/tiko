@@ -5,7 +5,7 @@
   var U = TA.util;
   var I = TA.ind;
 
-  var ENGINE = 'groundtruth-rules-1';
+  var ENGINE = 'tiko-rules-1';
 
   function fmtP(price, lang) { return U.fmtPrice(price, '$', lang); }
   function fmtPct(v, sign, dp) { return U.fmtPct(v, { sign: sign !== false, decimals: dp == null ? 2 : dp }); }

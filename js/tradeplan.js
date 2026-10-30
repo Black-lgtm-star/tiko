@@ -44,6 +44,48 @@
     return Math.abs(level / price - 1) * 100;
   }
 
+  function applyLevels(plan, levels, lang) {
+    var errors = {};
+    if (!levels || !U.isNum(plan.entry) || (plan.side !== 'long' && plan.side !== 'short')) return errors;
+
+    function valid(v) { return U.isNum(v) && v > 0; }
+    // Levels inside the displayed price resolution would round to the entry price.
+    function tooClose(v) {
+      return Math.abs(v - plan.entry) < Math.pow(10, -U.priceDecimals(plan.entry)) / 2;
+    }
+
+    if (levels.stop != null) {
+      if (!valid(levels.stop)) {
+        errors.stop = 'plan.levels.errNumber';
+      } else if (tooClose(levels.stop) || (plan.side === 'long' ? levels.stop > plan.entry : levels.stop < plan.entry)) {
+        errors.stop = plan.side === 'long' ? 'plan.levels.errStopLong' : 'plan.levels.errStopShort';
+      } else {
+        plan.stop = levels.stop;
+        plan.stopText = fmtP(levels.stop, lang);
+        plan.customStop = true;
+      }
+    }
+
+    if (levels.target != null) {
+      if (!valid(levels.target)) {
+        errors.target = 'plan.levels.errNumber';
+      } else if (tooClose(levels.target) || (plan.side === 'long' ? levels.target < plan.entry : levels.target > plan.entry)) {
+        errors.target = plan.side === 'long' ? 'plan.levels.errTargetLong' : 'plan.levels.errTargetShort';
+      } else {
+        plan.target = levels.target;
+        plan.targetText = fmtP(levels.target, lang);
+        plan.customTarget = true;
+      }
+    }
+
+    var risk = Math.abs(plan.entry - plan.stop);
+    if (risk > 0 && U.isNum(plan.target)) {
+      plan.rr = Math.abs(plan.target - plan.entry) / risk;
+      plan.rrText = plan.rr.toFixed(1) + ' : 1';
+    }
+    return errors;
+  }
+
   function build(a, opts) {
     opts = opts || {};
     var f = a.facts || {};
@@ -83,6 +125,9 @@
       r2Text: U.isNum(r2) ? fmtP(r2, lang) : '—',
       trigger: null, stop: null, target: null, entry: null,
       entryText: '—', triggerText: '—', stopText: '—', targetText: '—',
+      suggestedStop: null, suggestedTarget: null,
+      suggestedStopText: '—', suggestedTargetText: '—',
+      customStop: false, customTarget: false, levelErrors: {},
       rr: null, rrText: '—',
       entryBasis: 'trigger',
       sizeAllowed: false,
@@ -248,6 +293,12 @@
     } else {
       plan.sizeAllowed = false;
     }
+
+    plan.suggestedStop = plan.stop;
+    plan.suggestedTarget = plan.target;
+    plan.suggestedStopText = plan.stopText;
+    plan.suggestedTargetText = plan.targetText;
+    if (plan.sizeAllowed) plan.levelErrors = applyLevels(plan, opts.levels, lang);
 
     /* ---------------- reasons ---------------- */
     var trendUp = U.isNum(f.sma20) ? price >= f.sma20 : null;

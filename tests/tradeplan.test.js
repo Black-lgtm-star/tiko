@@ -178,6 +178,58 @@ test('warnings reflect low confidence, high volatility and stretched RSI', () =>
     assert.ok(p.warnings.indexOf(k) >= 0, 'missing ' + k));
 });
 
+test('custom stop and take profit override the plan and recompute R:R and sizing', () => {
+  const p = plan({ nearestResistance: { price: 101 }, nextResistance: { price: 106 } },
+    { levels: { stop: 99.5, target: 108 } });
+  assert.equal(p.suggestedStop, 98);
+  assert.equal(p.suggestedTarget, 106);
+  assert.equal(p.stop, 99.5);
+  assert.equal(p.target, 108);
+  assert.equal(p.customStop, true);
+  assert.equal(p.customTarget, true);
+  assert.deepEqual(Object.keys(p.levelErrors), []);
+  assert.ok(Math.abs(p.rr - 7 / 1.5) < 1e-9);
+  assert.equal(p.rrText, '4.7 : 1');
+  const s = TA.tradeplan.size(p, { accountSize: 10000, riskPct: 1 });
+  assert.ok(Math.abs(s.perUnit - 1.5) < 1e-9);
+  assert.ok(Math.abs(s.units - 100 / 1.5) < 1e-9);
+  assert.ok(Math.abs(s.notional - (100 / 1.5) * 101) < 1e-9);
+});
+
+test('invalid custom levels are rejected and suggestions are kept', () => {
+  const p = plan({ nearestResistance: { price: 101 }, nextResistance: { price: 106 } },
+    { levels: { stop: 105, target: 95 } });
+  assert.equal(p.levelErrors.stop, 'plan.levels.errStopLong');
+  assert.equal(p.levelErrors.target, 'plan.levels.errTargetLong');
+  assert.equal(p.customStop, false);
+  assert.equal(p.customTarget, false);
+  assert.equal(p.stop, 98);
+  assert.equal(p.target, 106);
+  assert.ok(Math.abs(p.rr - 5 / 3) < 1e-9);
+
+  const bad = plan({ nearestResistance: { price: 101 } }, { levels: { stop: NaN } });
+  assert.equal(bad.levelErrors.stop, 'plan.levels.errNumber');
+
+  const atEntry = plan({ nearestResistance: { price: 101 } }, { levels: { stop: 101, target: 101 } });
+  assert.equal(atEntry.levelErrors.stop, 'plan.levels.errStopLong');
+  assert.equal(atEntry.levelErrors.target, 'plan.levels.errTargetLong');
+  assert.equal(atEntry.customStop, false);
+  assert.equal(atEntry.customTarget, false);
+
+  const short = plan({ lean: { dir: 'bear', confidence: 'high' }, nearestSupport: { price: 99 }, nearestResistance: { price: 105 } },
+    { levels: { stop: 98, target: 104 } });
+  assert.equal(short.levelErrors.stop, 'plan.levels.errStopShort');
+  assert.equal(short.levelErrors.target, 'plan.levels.errTargetShort');
+  assert.equal(short.customStop, false);
+  assert.equal(short.customTarget, false);
+
+  const sample = plan({ meta: { dataMode: 'sample' } }, { levels: { stop: 90, target: 120 } });
+  assert.equal(sample.sizeAllowed, false);
+  assert.equal(sample.customStop, false);
+  assert.equal(sample.customTarget, false);
+  assert.deepEqual(Object.keys(sample.levelErrors), []);
+});
+
 test('every plan.* key used in code exists in EN and ES', () => {
   const code = fs.readFileSync(path.join(root, 'js/tradeplan.js'), 'utf8')
     + fs.readFileSync(path.join(root, 'js/views/analysis.js'), 'utf8');

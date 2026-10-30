@@ -1,11 +1,12 @@
-# Groundtruth — evidence-first market analysis (MVP)
+# TIKO — evidence-first market analysis (MVP)
 
 > Understand the setup, the evidence, and the risks — at a glance.
 
 A zero-build, zero-dependency web app that produces the same structured read for every market:
 snapshot, context, bull/bear evidence, key levels, conditional scenarios, risks and sources.
-It also turns that read into a conditional **action plan** — trigger, invalidation, target,
-reward-to-risk and risk-based position sizing — recomputed from the live price for crypto.
+It also turns that read into a conditional **action plan** — trigger, stop loss, take profit,
+reward-to-risk and risk-based position sizing — recomputed from the live price for crypto. Stop loss
+and take profit can be overridden per symbol and lens, and the plan recalculates live.
 It is informational only. It does not place trades, connect to brokers, or issue predictions.
 
 ## Run it
@@ -35,7 +36,8 @@ node --test tests/tradeplan.test.js
 ```
 
 It covers the long/short state machine, directional copy, sample practice mode, determinism,
-stop buffers, fixed-fractional sizing and account caps, warnings, and EN/ES key coverage.
+stop buffers, fixed-fractional sizing and account caps, editable stop/take-profit overrides,
+validation errors, warnings, and EN/ES key coverage (21 tests).
 
 ## What is in the MVP
 
@@ -53,11 +55,14 @@ stop buffers, fixed-fractional sizing and account caps, warnings, and EN/ES key 
   6. Risks (data limits, missing feeds, model caveats)
   7. Sources (provider, retrieval time, series end, method)
 - **Action plan** — a deterministic, conditional plan derived from the same facts: wait / unconfirmed /
-  active / extended / invalidated / no-trade states, the level that activates it, the invalidation,
-  the target, reward-to-risk, a confirmation checklist and risk-based sizing
-  (account size × risk % ÷ distance to invalidation). Crypto plans re-check the live spot quote every
-  60 seconds (paused while the tab is hidden, a dialog is open or the card has focus). No order is
-  ever placed.
+  active / extended / invalidated / no-trade states, the level that activates it, the stop loss,
+  the take profit, reward-to-risk, a confirmation checklist and risk-based sizing
+  (account size × risk % ÷ distance to stop loss). Stop loss and take profit are editable inline:
+  leave a field blank for the suggested level, enter a price to override it, or reset to suggested.
+  Overrides are validated against the entry (stop on the losing side, take profit on the winning
+  side), stored per symbol, asset class and lens, and update R:R and position size immediately.
+  Crypto plans re-check the live spot quote every 60 seconds (paused while the tab is hidden, a
+  dialog is open or the card has focus). No order is ever placed.
 - **Six lenses** — Day, Swing, Long term, Options, FX & futures, Beginner. They are tailored views of
   the same core read, not separate products. Each lens re-weights what is emphasized.
 - **Settings** — profile chips, default lens, language (English/Spanish), data mode (`auto` / `sample`),
@@ -127,8 +132,10 @@ correctly from recents or the watchlist.
 
 ### Storage keys
 
-`gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`.
+`gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
+`gt.planlevels.v1`.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
+Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Nothing leaves the browser; feedback export is a local JSON download.
 
 ### Adding a market data provider

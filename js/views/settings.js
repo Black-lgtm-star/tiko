@@ -148,7 +148,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'groundtruth-feedback-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'tiko-feedback-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
