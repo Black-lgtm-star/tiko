@@ -26,6 +26,20 @@ Then open `http://localhost:8000`.
 Live requests go to public APIs from your browser. If a request fails or is rate-limited, the app
 falls back to a clearly labeled synthetic sample and tells you why.
 
+## Deploying at tiko.app
+
+The app is a static site configured for Vercel (`vercel.json`). To publish it:
+
+1. Import this repository in Vercel as a static project. No framework, build command or output
+   directory is needed — the repository root is served as-is.
+2. Add `tiko.app` (and optionally `www.tiko.app`) under **Project → Settings → Domains**.
+3. At the domain registrar, create the DNS records Vercel shows. Vercel's usual targets are:
+   - apex `tiko.app` → A record `76.76.21.21`
+   - `www` → CNAME `cname.vercel-dns.com`
+4. Wait for verification; Vercel issues the TLS certificate automatically.
+
+`index.html` declares `https://tiko.app/` as its canonical and Open Graph URL.
+
 ## Tests
 
 Both suites run on Node's built-in test runner (Node 20+) with no dependencies:
