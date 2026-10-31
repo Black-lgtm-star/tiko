@@ -40,6 +40,19 @@ The app is a static site configured for Vercel (`vercel.json`). To publish it:
 
 `index.html` declares `https://tiko.app/` as its canonical and Open Graph URL.
 
+## No ads, no third-party scripts
+
+The app ships no ad slots, ad SDKs, trackers or third-party scripts, and the deployment enforces
+that with a Content-Security-Policy (`vercel.json`):
+
+- `script-src 'self'` — only the app's own `js/*.js` files execute; injected ad or tracker scripts are refused.
+- `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
+- `connect-src` is limited to the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`).
+- `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
+
+Assets are served from the same origin (fonts and images are local), so nothing is loaded from a
+CDN that could inject content. Keep this policy in place if you change hosting.
+
 ## Tests
 
 Both suites run on Node's built-in test runner (Node 20+) with no dependencies:

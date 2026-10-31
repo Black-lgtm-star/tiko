@@ -1,3 +1,5 @@
 dist
 tests
 README.md
+.env*
+.vercel
