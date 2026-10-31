@@ -12,8 +12,32 @@
     return T(h < 12 ? 'dash.good_morning' : h < 18 ? 'dash.good_afternoon' : 'dash.good_evening');
   }
 
+  function heroBlock(dateLabel) {
+    var watch = TA.store.watchlist().length;
+    return '<section class="hero" aria-labelledby="hero-title">' +
+      '<img class="hero-art" src="assets/img/hero-portal.jpg" alt="" aria-hidden="true" decoding="async" />' +
+      '<div class="hero-scrim" aria-hidden="true"></div>' +
+      '<div class="hero-inner">' +
+        '<div class="hero-copy">' +
+          '<span class="eyebrow hero-kicker"><i class="dot"></i>' + U.esc(greeting()) + ' · ' + U.esc(dateLabel) + '</span>' +
+          '<h1 id="hero-title">' + U.esc(T('dash.hero.title')) + '</h1>' +
+          '<p class="hero-sub">' + U.esc(T('app.promise')) + '</p>' +
+          '<div class="hero-actions">' +
+            '<button class="btn btn-primary hero-cta" data-focus-search>' + U.esc(T('nav.analyze')) + ui.icon('arrowRight', 15) + '</button>' +
+            '<button class="btn btn-cyan" data-scroll-how>' + U.esc(T('dash.hero.how')) + '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="hero-hud" role="list">' +
+          '<div class="hud-stat" role="listitem"><span class="k">' + U.esc(T('dash.hero.watch')) + '</span><b class="num">' + watch + '</b></div>' +
+          '<div class="hud-stat" role="listitem"><span class="k">' + U.esc(T('dash.hero.lenses')) + '</span><b class="num">6</b></div>' +
+          '<div class="hud-stat" role="listitem"><span class="k">' + U.esc(T('dash.hero.orders')) + '</span><b class="num">0</b><span class="n">' + U.esc(T('dash.hero.orders.note')) + '</span></div>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
   function quickCard() {
-    return '<section class="card quick span-12" aria-labelledby="quick-title">' +
+    return '<section class="card quick edge-magenta span-12" aria-labelledby="quick-title">' +
       '<div>' +
         '<span class="eyebrow">' + U.esc(T('dash.quick.title')) + '</span>' +
         '<h2 id="quick-title" style="margin-top:4px">' + U.esc(T('dash.quick.lede')) + '</h2>' +
@@ -40,8 +64,8 @@
   }
 
   function watchCard() {
-    return '<section class="card span-7" aria-labelledby="watch-title">' +
-      '<div class="card-head"><h2 id="watch-title">' + U.esc(T('dash.watchlist.title')) + '</h2>' +
+    return '<section class="card span-7 edge-cyan" aria-labelledby="watch-title">' +
+      '<div class="card-head"><h2 id="watch-title">' + ui.icon('star', 14) + U.esc(T('dash.watchlist.title')) + '</h2>' +
         '<span class="hint" data-watch-count></span></div>' +
       '<div class="list" data-watch-list>' + skeletonRows(3) + '</div>' +
       '<div class="card-foot tiny muted" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
@@ -51,8 +75,8 @@
   }
 
   function overviewCard() {
-    return '<section class="card span-5" aria-labelledby="ov-title">' +
-      '<div class="card-head"><h2 id="ov-title">' + U.esc(T('dash.overview.title')) + '</h2>' +
+    return '<section class="card span-5 edge-violet" aria-labelledby="ov-title">' +
+      '<div class="card-head"><h2 id="ov-title">' + ui.icon('pulse', 14) + U.esc(T('dash.overview.title')) + '</h2>' +
         '<span class="hint">' + U.esc(T('dash.overview.hint')) + '</span></div>' +
       '<div data-overview>' +
         '<div class="empty"><span class="spinner"></span><span>' + U.esc(T('dash.overview.loading')) + '</span></div>' +
@@ -62,8 +86,8 @@
 
   function recentsCard() {
     var recents = TA.store.recents();
-    return '<section class="card span-7" aria-labelledby="recent-title">' +
-      '<div class="card-head"><h2 id="recent-title">' + U.esc(T('dash.recent.title')) + '</h2></div>' +
+    return '<section class="card span-7 edge-violet" aria-labelledby="recent-title">' +
+      '<div class="card-head"><h2 id="recent-title">' + ui.icon('clock', 14) + U.esc(T('dash.recent.title')) + '</h2></div>' +
       (recents.length
         ? '<div class="list">' + recents.slice(0, 5).map(function (r) {
             var lean = r.lean && r.lean.dir ? r.lean.dir : 'neutral';
@@ -87,8 +111,8 @@
       { t: 'jobs', when: T('dash.events.jobs.when'), head: 'NFP' },
       { t: 'crypto', when: T('dash.events.crypto.when'), head: '24/7' }
     ];
-    return '<section class="card span-5" aria-labelledby="ev-title">' +
-      '<div class="card-head"><h2 id="ev-title">' + U.esc(T('dash.events.title')) + '</h2>' +
+    return '<section class="card span-5 edge-amber" aria-labelledby="ev-title">' +
+      '<div class="card-head"><h2 id="ev-title">' + ui.icon('flag', 14) + U.esc(T('dash.events.title')) + '</h2>' +
         '<span class="badge badge-sample">' + U.esc(T('dash.events.badge')) + '</span></div>' +
       items.map(function (i) {
         return '<div class="event">' +
@@ -104,10 +128,10 @@
   function howCard() {
     var steps = [1, 2, 3];
     var icons = ['layers', 'scale', 'shield'];
-    return '<section class="card span-12" aria-labelledby="how-title">' +
-      '<div class="card-head"><h2 id="how-title">' + U.esc(T('dash.how.title')) + '</h2>' +
+    return '<section class="card span-12 edge-cyan" id="how-section" aria-labelledby="how-title">' +
+      '<div class="card-head"><h2 id="how-title">' + ui.icon('layers', 14) + U.esc(T('dash.how.title')) + '</h2>' +
         '<button class="btn btn-sm btn-ghost" data-open-glossary>' + ui.icon('book', 13) + ' ' + U.esc(T('common.glossary')) + '</button></div>' +
-      '<div class="card-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">' +
+      '<div class="card-body how-grid">' +
         steps.map(function (n) {
           return '<div style="display:flex;gap:12px">' +
             '<span class="section-num" style="margin-top:2px">0' + n + '</span>' +
@@ -287,19 +311,9 @@
   }
 
   function render(root) {
-    var s = TA.store.settings();
     var dateLabel = U.fmtDate(Date.now(), lang(), { weekday: 'long', month: 'long', day: 'numeric' });
     root.innerHTML = '<div class="wrap page">' +
-      '<div class="page-head">' +
-        '<div>' +
-          '<div class="eyebrow">' + U.esc(greeting()) + ' · ' + U.esc(dateLabel) + '</div>' +
-          '<h1 style="margin-top:6px">' + U.esc(T('dash.title')) + '</h1>' +
-          '<p class="greeting-sub">' + U.esc(T('app.promise')) + '</p>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-          '<button class="btn btn-sm" data-open-legal>' + ui.icon('shield', 14) + ' ' + U.esc(T('app.disclaimer_short')) + '</button>' +
-        '</div>' +
-      '</div>' +
+      heroBlock(dateLabel) +
       '<div class="dash-grid">' +
         quickCard() + watchCard() + overviewCard() + recentsCard() + eventsCard() + howCard() + disclaimerLine() +
       '</div>' +
@@ -312,6 +326,18 @@
     root.addEventListener('click', function (e) {
       if (e.target.closest('[data-open-legal]')) { e.preventDefault(); ui.legalModal(); }
       if (e.target.closest('[data-open-glossary]')) { e.preventDefault(); ui.glossaryModal(); }
+      if (e.target.closest('[data-focus-search]')) {
+        var quick = root.querySelector('#quick-input');
+        if (quick) {
+          quick.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          quick.focus({ preventScroll: true });
+        }
+      }
+      var how = e.target.closest('[data-scroll-how]');
+      if (how) {
+        var sec = root.querySelector('#how-section');
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       var r = e.target.closest('[data-recent]');
       if (r) {
         var sym = r.getAttribute('data-recent');

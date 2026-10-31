@@ -23,7 +23,7 @@
 
   TA.charts = {
     price: function (model) {
-      var W = 760, H = 300;
+      var W = model.width || 760, H = model.height || 300;
       var pad = { l: 8, r: 76, t: 18, b: 30 };
       var closes = model.closes || [];
       if (closes.length < 2) {
@@ -60,9 +60,9 @@
         var gv = min + (max - min) * (g / 3);
         var gy = y(gv);
         grid += '<line x1="' + pad.l + '" y1="' + gy.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + gy.toFixed(1) +
-          '" stroke="rgba(147,164,184,0.10)" stroke-width="1"/>' +
+          '" stroke="rgba(160,150,220,0.12)" stroke-width="1"/>' +
           '<text x="' + (W - pad.r + 8) + '" y="' + (gy + 3.5).toFixed(1) +
-          '" fill="#6b7d92" font-size="10.5" font-family="ui-monospace,monospace">' + axisPrice(gv) + '</text>';
+          '" fill="#776c9c" font-size="10.5" font-family="ui-monospace,monospace">' + axisPrice(gv) + '</text>';
       }
 
       var smaPaths = '';
@@ -70,14 +70,14 @@
         var p20 = [];
         model.sma20.forEach(function (v, i) { if (U.isNum(v)) p20.push([x(i), y(v)]); });
         if (p20.length > 1) {
-          smaPaths += '<path d="' + linePath(p20) + '" fill="none" stroke="#8fb3ff" stroke-width="1.4" stroke-opacity="0.75"/>';
+          smaPaths += '<path d="' + linePath(p20) + '" fill="none" stroke="#29e0ff" stroke-width="1.4" stroke-opacity="0.8"/>';
         }
       }
       if (model.sma50) {
         var p50 = [];
         model.sma50.forEach(function (v, i) { if (U.isNum(v)) p50.push([x(i), y(v)]); });
         if (p50.length > 1) {
-          smaPaths += '<path d="' + linePath(p50) + '" fill="none" stroke="#f0b866" stroke-width="1.3" stroke-opacity="0.7" stroke-dasharray="4 4"/>';
+          smaPaths += '<path d="' + linePath(p50) + '" fill="none" stroke="#c084fc" stroke-width="1.3" stroke-opacity="0.75" stroke-dasharray="4 4"/>';
         }
       }
 
@@ -85,7 +85,7 @@
       (model.levels || []).slice(0, 4).forEach(function (l) {
         if (!U.isNum(l.price) || l.price < min || l.price > max) return;
         var ly = y(l.price);
-        var color = l.kind === 'support' ? '#43d69a' : l.kind === 'resistance' ? '#ff7085' : '#93a4b8';
+        var color = l.kind === 'support' ? '#3ddc97' : l.kind === 'resistance' ? '#ff5c8a' : '#9b8dbd';
         levels += '<line x1="' + pad.l + '" y1="' + ly.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + ly.toFixed(1) +
           '" stroke="' + color + '" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="2 5"/>' +
           '<rect x="' + (W - pad.r + 4) + '" y="' + (ly - 7).toFixed(1) + '" width="66" height="14" rx="3" fill="' +
@@ -105,16 +105,16 @@
           : U.fmtDate(t, model.lang, { month: 'short', day: 'numeric' });
         var anchor = k === 0 ? 'start' : k === count - 1 ? 'end' : 'middle';
         var tx = k === 0 ? pad.l : k === count - 1 ? W - pad.r : x(idx);
-        xlabels += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" fill="#6b7d92" font-size="10" text-anchor="' +
+        xlabels += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" fill="#776c9c" font-size="10" text-anchor="' +
           anchor + '" font-family="ui-monospace,monospace">' + U.esc(label) + '</text>';
       }
 
       var last = pts[pts.length - 1];
       var lastVal = closes[closes.length - 1];
       var up = closes[closes.length - 1] >= closes[0];
-      var stroke = up ? '#43d69a' : '#ff7085';
+      var stroke = up ? '#3ddc97' : '#ff5c8a';
       var watermark = model.sample
-        ? '<text x="' + (W / 2) + '" y="' + (H / 2 + 10) + '" fill="#f0b866" fill-opacity="0.10" font-size="46" font-weight="700" letter-spacing="6" text-anchor="middle" transform="rotate(-14 ' + (W / 2) + ' ' + (H / 2) + ')">SAMPLE DATA</text>'
+        ? '<text x="' + (W / 2) + '" y="' + (H / 2 + 10) + '" fill="#ffc857" fill-opacity="0.10" font-size="46" font-weight="700" letter-spacing="6" text-anchor="middle" transform="rotate(-14 ' + (W / 2) + ' ' + (H / 2) + ')">SAMPLE DATA</text>'
         : '';
 
       return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price chart">' +
@@ -129,7 +129,7 @@
         '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3.2" fill="' + stroke + '"/>' +
         '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="7" fill="' + stroke + '" fill-opacity="0.16"/>' +
         '<text x="' + (last[0] - 6).toFixed(1) + '" y="' + (last[1] - 10).toFixed(1) +
-        '" fill="#e9eff7" font-size="10.5" text-anchor="end" font-family="ui-monospace,monospace" font-weight="600">' +
+        '" fill="#f5f0ff" font-size="10.5" text-anchor="end" font-family="ui-monospace,monospace" font-weight="600">' +
         U.esc(model.lastLabel || axisPrice(lastVal)) + '</text>' +
         xlabels + '</svg>';
     },
@@ -148,7 +148,7 @@
         ];
       });
       var up = vals[vals.length - 1] >= vals[0];
-      var color = up ? '#43d69a' : '#ff7085';
+      var color = up ? '#3ddc97' : '#ff5c8a';
       var d = linePath(pts);
       var area = d + 'L' + (w - 1) + ',' + h + 'L1,' + h + 'Z';
       return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +

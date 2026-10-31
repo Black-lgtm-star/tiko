@@ -35,21 +35,25 @@
   }
 
   /* ---------------- section 01 ---------------- */
+  function chartModel(a, uid, w, h) {
+    return {
+      uid: uid, width: w, height: h,
+      times: a.chart.times, closes: a.chart.closes,
+      sma20: a.chart.sma20, sma50: a.chart.sma50,
+      levels: a.chart.levels, sample: a.chart.sample,
+      interval: a.chart.interval, lang: lang(),
+      lastLabel: U.fmtPrice(a.facts.price, '$', lang()),
+      emptyText: T('an.chart.empty')
+    };
+  }
+
   function snapshotSection(a) {
     var f = a.facts, m = a.meta;
     var change = f.changePct;
     var chgCls = U.isNum(change) ? (change > 0 ? 'badge-bull' : change < 0 ? 'badge-bear' : 'badge-neutral') : 'badge-neutral';
     var arrow = U.isNum(change) ? ui.icon(change >= 0 ? 'up' : 'down', 13) : '';
     var stamp = m.providerUpdatedAt || m.seriesEnd;
-    var chart = TA.charts.price({
-      uid: 'g' + Math.random().toString(36).slice(2, 8),
-      times: a.chart.times, closes: a.chart.closes,
-      sma20: a.chart.sma20, sma50: a.chart.sma50,
-      levels: a.chart.levels, sample: a.chart.sample,
-      interval: a.chart.interval, lang: lang(),
-      lastLabel: U.fmtPrice(f.price, '$', lang()),
-      emptyText: T('an.chart.empty')
-    });
+    var chart = TA.charts.price(chartModel(a, 'g' + Math.random().toString(36).slice(2, 8)));
 
     var kv = [
       [T('an.day_range'), f.dayLowText + ' – ' + f.dayHighText],
@@ -84,16 +88,24 @@
               esc(T('an.generated', { time: U.fmtDateTime(a.generatedAt, lang()) })) + '</div>' +
           '</div>' +
           '<div class="snapshot-right">' +
-            '<div class="chart-wrap">' + chart + '</div>' +
-            '<div class="chart-legend">' +
-              '<span class="lg"><i style="background:var(--bull)"></i>' + esc(T('an.chart.legend.price')) + '</span>' +
-              '<span class="lg"><i style="background:#8fb3ff"></i>' + esc(T('an.chart.legend.sma20')) + '</span>' +
-              '<span class="lg"><i style="background:#f0b866"></i>' + esc(T('an.chart.legend.sma50')) + '</span>' +
-              '<span class="lg"><i style="background:var(--muted-2)"></i>' + esc(T('an.chart.legend.level')) + '</span>' +
-            '</div>' +
-            '<div class="chart-foot">' +
-              '<span class="data-stamp">' + esc(m.grainNote || '') + '</span>' +
-              '<span class="data-stamp">' + esc(T('an.chart.foot')) + '</span>' +
+            '<div class="chart-panel" data-chart-panel>' +
+              '<div class="chart-wrap">' + chart + '</div>' +
+              '<div class="chart-legend">' +
+                '<span class="lg"><i style="background:var(--bull)"></i>' + esc(T('an.chart.legend.price')) + '</span>' +
+                '<span class="lg"><i style="background:#29e0ff"></i>' + esc(T('an.chart.legend.sma20')) + '</span>' +
+                '<span class="lg"><i style="background:#c084fc"></i>' + esc(T('an.chart.legend.sma50')) + '</span>' +
+                '<span class="lg"><i style="background:var(--muted-2)"></i>' + esc(T('an.chart.legend.level')) + '</span>' +
+              '</div>' +
+              '<div class="chart-foot">' +
+                '<div class="chart-foot-notes">' +
+                  '<span class="data-stamp">' + esc(m.grainNote || '') + '</span>' +
+                  '<span class="data-stamp">' + esc(T('an.chart.foot')) + '</span>' +
+                '</div>' +
+                '<button type="button" class="btn btn-sm chart-fs-btn" data-chart-fs aria-pressed="false" ' +
+                  'aria-label="' + U.attr(T('an.chart.fs.enter')) + '" title="' + U.attr(T('an.chart.fs.enter')) + '">' +
+                  ui.icon('expand', 13) + ' <span class="label" data-chart-fs-label>' + esc(T('an.chart.fs.enter')) + '</span>' +
+                '</button>' +
+              '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -324,6 +336,172 @@
     '</section>';
   }
 
+  /* ---------------- copilot ---------------- */
+  var CITE_TARGETS = {
+    plan: 'plan-title',
+    snapshot: 'sec1',
+    context: 'sec2',
+    cases: 'sec3',
+    levels: 'sec4',
+    scenarios: 'sec5',
+    risks: 'sec6',
+    sources: 'sec7'
+  };
+
+  function copilotBriefHtml(brief) {
+    return '<div class="copilot-brief-head"><span class="eyebrow">' + esc(T('copilot.briefLabel')) + '</span></div>' +
+      '<p class="copilot-headline ' + brief.tone + '">' + esc(brief.headline) + '</p>' +
+      '<div class="copilot-reads">' + brief.reads.map(function (r) {
+        return '<div class="copilot-read"><span class="k">' + esc(r.label) + '</span>' +
+          '<span class="v">' + esc(r.value) + '</span></div>';
+      }).join('') + '</div>' +
+      (brief.points.length
+        ? '<ul class="copilot-points">' + brief.points.map(function (p) {
+          return '<li>' + esc(p.text) + '</li>';
+        }).join('') + '</ul>'
+        : '');
+  }
+
+  function refreshCopilotBrief(root, entry) {
+    var el = root.querySelector('[data-copilot-brief]');
+    if (!el || !entry.plan || !TA.copilot) return;
+    el.innerHTML = copilotBriefHtml(TA.copilot.brief(entry.a, entry.plan));
+  }
+
+  function copilotCard(entry) {
+    var brief = TA.copilot.brief(entry.a, entry.plan);
+    return '<section class="card copilot edge-cyan" data-copilot aria-labelledby="copilot-title">' +
+      '<div class="copilot-head">' +
+        '<span class="copilot-orb" aria-hidden="true">' + ui.icon('sparkles', 17) + '</span>' +
+        '<div class="titles">' +
+          '<div class="eyebrow">' + esc(T('copilot.eyebrow')) + '</div>' +
+          '<h2 id="copilot-title">' + esc(T('copilot.title')) + '</h2>' +
+          '<p>' + esc(T('copilot.sub')) + '</p>' +
+        '</div>' +
+        '<div class="copilot-head-actions">' +
+          '<span class="badge badge-live"><i class="plan-dot"></i>' + esc(T('copilot.badge')) + '</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" data-copilot-clear hidden>' + esc(T('copilot.clear')) + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="copilot-body">' +
+        '<div class="copilot-brief" data-copilot-brief>' + copilotBriefHtml(brief) + '</div>' +
+        '<div class="copilot-ask">' +
+          '<div class="copilot-prompts">' +
+            '<span class="k">' + esc(T('copilot.suggested')) + '</span>' +
+            brief.prompts.map(function (p) {
+              return '<button type="button" class="copilot-prompt" data-copilot-prompt="' + U.attr(p.id) + '">' +
+                esc(p.text) + '</button>';
+            }).join('') +
+          '</div>' +
+          '<div class="copilot-thread" data-copilot-thread role="log" aria-live="polite" aria-label="' +
+            U.attr(T('copilot.thread')) + '"></div>' +
+          '<form class="copilot-form" data-copilot-form novalidate>' +
+            '<label class="sr-only" for="copilot-input">' + esc(T('copilot.placeholder')) + '</label>' +
+            '<input id="copilot-input" class="input" data-copilot-input type="text" maxlength="240" ' +
+              'autocomplete="off" spellcheck="false" placeholder="' + U.attr(T('copilot.placeholder')) + '">' +
+            '<button type="submit" class="btn btn-primary copilot-send">' +
+              ui.icon('sparkles', 13) + ' ' + esc(T('copilot.send')) + '</button>' +
+          '</form>' +
+        '</div>' +
+      '</div>' +
+      '<div class="copilot-foot">' +
+        '<span class="data-stamp">' + ui.icon('shield', 12) + ' ' + esc(T('copilot.foot')) + '</span>' +
+      '</div>' +
+      '</section>';
+  }
+
+  function bindCopilot(root, entry) {
+    var card = root.querySelector('[data-copilot]');
+    if (!card || !TA.copilot) return;
+    var threadEl = card.querySelector('[data-copilot-thread]');
+    var form = card.querySelector('[data-copilot-form]');
+    var input = card.querySelector('[data-copilot-input]');
+    var clearBtn = card.querySelector('[data-copilot-clear]');
+    var items = [];
+    var max = 6;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function citesHtml(cites) {
+      return cites.map(function (c) {
+        var target = CITE_TARGETS[c];
+        if (!target) return '';
+        return '<button type="button" class="copilot-cite" data-copilot-cite="' + U.attr(target) + '">' +
+          esc(T('copilot.cite.' + c)) + '</button>';
+      }).join('');
+    }
+
+    function messageHtml(item) {
+      var ans = item.ans;
+      return '<div class="copilot-msg copilot-msg-user"><span class="who">' + esc(T('copilot.you')) + '</span>' +
+          esc(item.q) + '</div>' +
+        '<div class="copilot-msg copilot-msg-ai">' +
+          '<div class="copilot-msg-head"><span class="copilot-avatar">' + ui.icon('sparkles', 11) + '</span>' +
+            esc(ans.title) + '</div>' +
+          ans.paragraphs.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') +
+          (ans.cites.length
+            ? '<div class="copilot-cites"><span class="k">' + esc(T('copilot.citations')) + '</span>' +
+              citesHtml(ans.cites) + '</div>'
+            : '') +
+          (ans.followups.length
+            ? '<div class="copilot-followups"><span class="k">' + esc(T('copilot.followups')) + '</span>' +
+              ans.followups.map(function (id) {
+                return '<button type="button" class="copilot-prompt" data-copilot-prompt="' + U.attr(id) + '">' +
+                  esc(TA.copilot.question(id)) + '</button>';
+              }).join('') + '</div>'
+            : '') +
+        '</div>';
+    }
+
+    function renderThread() {
+      if (!threadEl) return;
+      threadEl.innerHTML = items.map(messageHtml).join('');
+    }
+
+    function ask(text) {
+      var q = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+      if (!q) {
+        if (input) input.focus();
+        return;
+      }
+      items.push({ q: q, ans: TA.copilot.answer(q, entry.a, entry.plan) });
+      if (items.length > max) items.shift();
+      renderThread();
+      if (clearBtn) clearBtn.hidden = false;
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+    }
+
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        ask(input ? input.value : '');
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        items = [];
+        renderThread();
+        clearBtn.hidden = true;
+        if (input) input.focus();
+      });
+    }
+
+    U.on(card, 'click', '[data-copilot-prompt]', function (e, btn) {
+      ask(TA.copilot.question(btn.getAttribute('data-copilot-prompt')));
+    });
+
+    U.on(card, 'click', '[data-copilot-cite]', function (e, btn) {
+      var target = document.getElementById(btn.getAttribute('data-copilot-cite'));
+      if (!target) return;
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    });
+  }
+
   function planLevelsKey(a, style) {
     return [a.asset.symbol, a.asset.assetClass, style].join('|');
   }
@@ -347,6 +525,7 @@
     function repaint() {
       var body = root.querySelector('[data-plan-body]');
       if (body) body.innerHTML = planBodyHtml(entry.plan);
+      refreshCopilotBrief(root, entry);
     }
 
     function paintRegions() {
@@ -365,6 +544,7 @@
       if (badge) badge.hidden = !custom;
       var reset = root.querySelector('[data-level-reset]');
       if (reset) reset.hidden = !custom;
+      refreshCopilotBrief(root, entry);
     }
 
     function applyLevelEdits() {
@@ -448,6 +628,155 @@
     planLiveStop = stop;
     setTimeout(poll, 500);
     timer = setInterval(poll, 60000);
+  }
+
+  /* ---------------- chart fullscreen ---------------- */
+  var chartFsStop = null;
+
+  function stopChartFullscreen() {
+    if (chartFsStop) { chartFsStop(); chartFsStop = null; }
+  }
+
+  function bindChartFullscreen(root, a) {
+    stopChartFullscreen();
+    var panel = root.querySelector('[data-chart-panel]');
+    var btn = panel && panel.querySelector('[data-chart-fs]');
+    var wrap = panel && panel.querySelector('.chart-wrap');
+    if (!panel || !btn) return;
+
+    var sizeTimer = null;
+
+    function freshUid() {
+      return 'g' + Math.random().toString(36).slice(2, 8);
+    }
+    function renderChart(w, h) {
+      if (wrap) wrap.innerHTML = TA.charts.price(chartModel(a, freshUid(), w, h));
+    }
+    function scheduleSize(tries) {
+      if (sizeTimer) clearTimeout(sizeTimer);
+      sizeTimer = setTimeout(function () {
+        sizeTimer = null;
+        if (!isOpen() || !wrap) return;
+        var w = Math.round(wrap.clientWidth);
+        var h = Math.round(wrap.clientHeight);
+        if (w > 0 && h > 0) renderChart(w, h);
+        else if ((tries || 0) < 3) scheduleSize((tries || 0) + 1);
+      }, 80);
+    }
+    function restoreChart() {
+      if (sizeTimer) { clearTimeout(sizeTimer); sizeTimer = null; }
+      renderChart();
+    }
+
+    function nativeEl() {
+      return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+    function isOpen() {
+      return nativeEl() === panel || panel.classList.contains('is-fs');
+    }
+    function paint() {
+      var open = isOpen();
+      var label = T(open ? 'an.chart.fs.exit' : 'an.chart.fs.enter');
+      btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+      btn.innerHTML = ui.icon(open ? 'collapse' : 'expand', 13) +
+        ' <span class="label" data-chart-fs-label>' + esc(label) + '</span>';
+    }
+    function fallbackOn() {
+      panel.classList.add('is-fs');
+      document.body.classList.add('chart-fs-open');
+      paint();
+      scheduleSize(0);
+    }
+    function clearFallback() {
+      panel.classList.remove('is-fs');
+      document.body.classList.remove('chart-fs-open');
+    }
+    function focusButton() {
+      btn.focus({ preventScroll: true });
+    }
+    function enterFs() {
+      var request = panel.requestFullscreen || panel.webkitRequestFullscreen;
+      if (!request) { fallbackOn(); focusButton(); return; }
+      var result;
+      try {
+        result = request.call(panel);
+      } catch (e) {
+        fallbackOn(); focusButton(); return;
+      }
+      if (result && result.then) {
+        result.then(function () { focusButton(); scheduleSize(0); }, function () { fallbackOn(); focusButton(); });
+      } else {
+        paint();
+        scheduleSize(0);
+        focusButton();
+      }
+    }
+    function exitFs() {
+      if (nativeEl() === panel) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) {
+          try {
+            var result = exit.call(document);
+            if (result && result.catch) result.catch(function () {});
+          } catch (e) {}
+        }
+      }
+      clearFallback();
+      paint();
+      restoreChart();
+      focusButton();
+    }
+    function onChange() {
+      var open = isOpen();
+      if (!open) clearFallback();
+      paint();
+      if (open) scheduleSize(0);
+      else restoreChart();
+    }
+    function onKey(e) {
+      if (!panel.classList.contains('is-fs')) return;
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        focusButton();
+        return;
+      }
+      if (e.key !== 'Escape' && e.key !== 'Esc') return;
+      e.preventDefault();
+      exitFs();
+    }
+    function onResize() {
+      if (isOpen()) scheduleSize(0);
+    }
+
+    btn.addEventListener('click', function () {
+      if (isOpen()) exitFs();
+      else enterFs();
+    });
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    paint();
+
+    chartFsStop = function () {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+      if (sizeTimer) { clearTimeout(sizeTimer); sizeTimer = null; }
+      if (nativeEl() === panel) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) {
+          try {
+            var result = exit.call(document);
+            if (result && result.catch) result.catch(function () {});
+          } catch (e) {}
+        }
+      }
+      clearFallback();
+    };
   }
 
   /* ---------------- data banners ---------------- */
@@ -689,13 +1018,13 @@
         '<div class="titles"><h2 id="sec4">' + esc(T('an.levels.title')) + '</h2><p>' + esc(T('an.sec.levels.sub')) + '</p></div>' +
       '</div>' +
       '<div class="section-body">' +
-        '<table class="levels"><thead><tr>' +
+        '<div class="table-scroll"><table class="levels"><thead><tr>' +
           '<th>' + esc(T('an.levels.h.level')) + '</th>' +
           '<th>' + esc(T('an.levels.h.price')) + '</th>' +
           '<th>' + esc(T('an.levels.h.dist')) + '</th>' +
           '<th>' + esc(T('an.levels.h.strength')) + '</th>' +
           '<th>' + esc(T('an.levels.h.note')) + '</th>' +
-        '</tr></thead><tbody>' + body + '</tbody></table>' +
+        '</tr></thead><tbody>' + body + '</tbody></table></div>' +
         '<p class="tiny muted" style="margin-top:12px">' + esc(T('an.levels.note')) + '</p>' +
       '</div>' +
       '</section>';
@@ -889,6 +1218,7 @@
       '<div style="margin-top:18px"></div>' +
       snapshotSection(a) +
       planCard(entry) +
+      copilotCard(entry) +
       lensSection(a, style) +
       contextSection(a) +
       casesSection(a) +
@@ -934,7 +1264,9 @@
   /* ---------------- bindings ---------------- */
   function bind(root, entry, style, reload) {
     var a = entry.a;
+    bindChartFullscreen(root, a);
     bindPlan(root, entry, style);
+    bindCopilot(root, entry);
     root.addEventListener('click', function (e) {
       if (e.target.closest('[data-open-legal]')) { e.preventDefault(); ui.legalModal(); }
       if (e.target.closest('[data-open-glossary]')) { e.preventDefault(); ui.glossaryModal(); }
@@ -1006,6 +1338,7 @@
   /* ---------------- render ---------------- */
   function render(root, params) {
     stopPlanLive();
+    stopChartFullscreen();
     var settings = TA.store.settings();
     var style = STYLES.indexOf(params.style) >= 0 ? params.style : settings.defaultStyle;
     if (STYLES.indexOf(style) < 0) style = 'swing';

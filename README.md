@@ -28,22 +28,25 @@ falls back to a clearly labeled synthetic sample and tells you why.
 
 ## Tests
 
-The action-plan suite runs on Node's built-in test runner (Node 20+) with no dependencies:
+Both suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/tradeplan.test.js
+node --test tests/tradeplan.test.js tests/copilot.test.js
 # or: npm test (when Node is on PATH)
 ```
 
-It covers the long/short state machine, directional copy, sample practice mode, determinism,
-stop buffers, fixed-fractional sizing and account caps, editable stop/take-profit overrides,
-validation errors, warnings, and EN/ES key coverage (21 tests).
+The action-plan suite covers the long/short state machine, directional copy, sample practice mode,
+determinism, stop buffers, fixed-fractional sizing and account caps, editable stop/take-profit
+overrides, validation errors, warnings, and EN/ES key coverage (21 tests). The copilot suite covers
+brief headlines for every plan state, EN/ES intent routing, grounded answers for each topic, sample
+warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key coverage (19 tests).
 
 ## What is in the MVP
 
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
   Answers are editable later in Settings and drive the default lens and copy density.
-- **Dashboard** — search (ticker/asset), quick analysis, watchlist, recent analyses, market overview,
+- **Dashboard** — a hero read of the current session (watchlist count, six lenses, zero orders placed),
+  search (ticker/asset), quick analysis, watchlist, recent analyses, market overview,
   and reference events. Recently opened analyses and non-catalog tickers are persisted with enough
   metadata to reopen them.
 - **Analysis page** — identical seven-section structure for every asset:
@@ -54,6 +57,10 @@ validation errors, warnings, and EN/ES key coverage (21 tests).
   5. Scenarios, each with trigger, what strengthens it, and invalidation
   6. Risks (data limits, missing feeds, model caveats)
   7. Sources (provider, retrieval time, series end, method)
+- **Interactive chart** — the snapshot chart draws closes, averages and key levels from the same
+  series. A fullscreen button expands it to the whole viewport and back; Escape also exits, and
+  focus stays on the toggle. Browsers without the Fullscreen API get an in-page overlay with the
+  same behavior.
 - **Action plan** — a deterministic, conditional plan derived from the same facts: wait / unconfirmed /
   active / extended / invalidated / no-trade states, the level that activates it, the stop loss,
   the take profit, reward-to-risk, a confirmation checklist and risk-based sizing
@@ -63,6 +70,12 @@ validation errors, warnings, and EN/ES key coverage (21 tests).
   side), stored per symbol, asset class and lens, and update R:R and position size immediately.
   Crypto plans re-check the live spot quote every 60 seconds (paused while the tab is hidden, a
   dialog is open or the card has focus). No order is ever placed.
+- **Ask-the-chart copilot** — an on-device assistant that turns the page's own facts into faster
+  answers. A live brief summarizes the state, trend, location, momentum and volatility; suggested
+  questions cover the setup, key levels, invalidation, trend, volatility, volume, scenarios,
+  evidence, the chart and data freshness. Answers are composed locally from the same facts and fixed
+  rules, cite the sections they come from (select a citation to jump there), and refresh with the
+  live plan and the selected language. No external model, no network request, no prediction.
 - **Six lenses** — Day, Swing, Long term, Options, FX & futures, Beginner. They are tailored views of
   the same core read, not separate products. Each lens re-weights what is emphasized.
 - **Settings** — profile chips, default lens, language (English/Spanish), data mode (`auto` / `sample`),
@@ -95,6 +108,20 @@ validation errors, warnings, and EN/ES key coverage (21 tests).
 3. The key is stored unencrypted in this browser's localStorage and sent only to Alpha Vantage.
 4. The free tier has a low daily quota. Failures fall back to labeled sample data.
 
+## Design
+
+The interface uses a cosmic portal language: near-black violet surfaces, neon magenta for the
+primary action, cyan for secondary outlines, and the bundled **Chakra Petch** display face for
+headings, labels and controls. Cards carry a colored top edge and the hero backdrop is a generated
+portal scene with a dark left third reserved for copy.
+
+- Hero art: `assets/img/hero-portal.jpg` (generated for this project).
+- Fonts: Chakra Petch 600/700 — SIL Open Font License 1.1, see `assets/fonts/OFL.txt`.
+- Everything is local: no font CDN, icon pack or chart library is fetched at runtime. Charts are
+  drawn as inline SVG, icons as inline paths.
+- The starfield, HUD stat bar and card edges are CSS-only; all motion respects
+  `prefers-reduced-motion`, and copy stays readable without the backdrop.
+
 ## Architecture
 
 Classic scripts sharing a `window.TA` namespace, loaded in dependency order by `index.html`.
@@ -110,6 +137,7 @@ js/catalog.js       supported assets, search, sample-series parameters
 js/data.js          providers, caching, fallback, overview/quotes, resolution
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
+js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
 js/views/*.js       onboarding, dashboard, analysis, settings
@@ -121,8 +149,11 @@ Data flow: `views → data.getMarketData(asset, {timeframe}) → {asset, candles
 The analysis engine is deterministic: it computes indicators locally, scores evidence for and
 against, derives levels from structure, and generates scenarios and risks. `tradeplan.build` is a
 pure function of those facts plus an optional live price, so the same inputs always produce the same
-plan. No LLM is involved and nothing is sent to a server by this app. Account size and risk
-percentage are stored only in `gt.settings.v1`; the plan never sends an order anywhere.
+plan. The copilot is deterministic too: `copilot.brief` and `copilot.answer` compose copy from those
+same facts, the current plan and local intent rules, so the brief stays in sync with live plan
+updates and every answer traces back to the page. No LLM is involved and nothing is sent to a
+server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
+never sends an order anywhere.
 
 Storage keys: `gt.settings.v1` also holds `accountSize` and `riskPct` for the sizing calculator.
 
@@ -160,6 +191,8 @@ applied on change and persists in settings.
 
 - Skip link, labeled landmarks, `aria-pressed` chips, `aria-selected` tabs, focus-trapped modals,
   keyboard search (`/`), visible focus styles, reduced-motion support.
+- The copilot form is keyboard-first: labeled input, live `role="log"` thread, suggested-question
+  buttons and citations that move focus to the cited section instead of changing the route.
 - Responsive from narrow mobile to desktop; the dashboard grid collapses to single-column cards.
 - Watchlist rows use sibling buttons (open + remove) instead of nested interactive controls.
 - Feedback, notes and reset are local-first; reset clears all app data and returns to onboarding.

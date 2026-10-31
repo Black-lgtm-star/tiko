@@ -90,7 +90,7 @@
       root.innerHTML = '<div class="overlay"><div class="onboard" role="dialog" aria-modal="true" aria-labelledby="ob-title">' +
         '<div class="onboard-head">' +
           '<div class="brand" style="pointer-events:none">' +
-            '<span class="brand-mark"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5fd0c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 9 10l4 3 8-9"/><circle cx="21" cy="4" r="1.6" fill="#5fd0c7" stroke="none"/></svg></span>' +
+            '<span class="brand-mark"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.4 21 7.4v9.2L12 21.6 3 16.6V7.4Z" stroke="#ff2fd0" stroke-width="1.5"/><path d="M3 7.4 12 12.4l9-5" stroke="#29e0ff" stroke-width="1.5"/><path d="M12 12.4v9.2" stroke="#29e0ff" stroke-width="1.5"/></svg></span>' +
             '<span><span class="brand-name">' + U.esc(T('app.name')) + '</span><br><span class="brand-sub">' + U.esc(T('app.tagline')) + '</span></span>' +
           '</div>' +
           '<span class="badge badge-sample">' + U.esc(T('badge.sample')) + ' · MVP</span>' +

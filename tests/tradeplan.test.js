@@ -232,6 +232,7 @@ test('invalid custom levels are rejected and suggestions are kept', () => {
 
 test('every plan.* key used in code exists in EN and ES', () => {
   const code = fs.readFileSync(path.join(root, 'js/tradeplan.js'), 'utf8')
+    + fs.readFileSync(path.join(root, 'js/copilot.js'), 'utf8')
     + fs.readFileSync(path.join(root, 'js/views/analysis.js'), 'utf8');
   const used = new Set();
   (code.match(/'plan\.[^']+'/g) || []).forEach((s) => {

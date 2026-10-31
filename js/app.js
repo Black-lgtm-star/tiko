@@ -10,9 +10,11 @@
 
   function brandMark() {
     return '<span class="brand-mark">' +
-      '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5fd0c7" stroke-width="2" ' +
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" ' +
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-        '<path d="M3 17 9 10l4 3 8-9"/><circle cx="21" cy="4" r="1.6" fill="#5fd0c7" stroke="none"/></svg></span>';
+        '<path d="M12 2.4 21 7.4v9.2L12 21.6 3 16.6V7.4Z" stroke="#ff2fd0" stroke-width="1.5"/>' +
+        '<path d="M3 7.4 12 12.4l9-5" stroke="#29e0ff" stroke-width="1.5"/>' +
+        '<path d="M12 12.4v9.2" stroke="#29e0ff" stroke-width="1.5"/></svg></span>';
   }
 
   function shellHtml() {
@@ -23,6 +25,10 @@
             '<span><span class="brand-name">' + U.esc(T('app.name')) + '</span><br>' +
             '<span class="brand-sub">' + U.esc(T('app.tagline')) + '</span></span>' +
           '</a>' +
+          '<nav class="appnav">' +
+            '<a href="#/" data-nav="dashboard">' + U.esc(T('nav.dashboard')) + '</a>' +
+            '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
+          '</nav>' +
           '<div class="header-search">' +
             '<span class="search-ico">' + ui.icon('search', 16) + '</span>' +
             '<input id="global-search" type="text" role="combobox" aria-expanded="false" ' +
@@ -32,10 +38,12 @@
             '<div class="search-results" id="search-panel" role="listbox" aria-label="' + U.attr(T('nav.search_short')) + '" hidden></div>' +
           '</div>' +
           '<div class="header-actions">' +
-            '<button class="btn btn-sm btn-ghost legal-pill" data-open-legal aria-label="' + U.attr(T('nav.help')) + '">' +
-              ui.icon('shield', 14) + '<span class="label">' + U.esc(T('app.disclaimer_short')) + '</span></button>' +
-            '<a class="icon-btn" href="#/settings" aria-label="' + U.attr(T('nav.open_settings')) + '" title="' + U.attr(T('nav.open_settings')) + '">' +
+            '<button class="btn btn-sm btn-ghost legal-pill" data-open-legal aria-label="' + U.attr(T('nav.info_full')) + '">' +
+              ui.icon('info', 14) + '<span class="label">' + U.esc(T('nav.info')) + '</span></button>' +
+            '<a class="icon-btn only-narrow" href="#/settings" aria-label="' + U.attr(T('nav.open_settings')) + '" title="' + U.attr(T('nav.open_settings')) + '">' +
               ui.icon('settings', 17) + '</a>' +
+            '<button class="btn btn-sm btn-primary nav-cta" data-focus-search aria-label="' + U.attr(T('nav.analyze')) + '">' +
+              ui.icon('search', 14) + '<span>' + U.esc(T('nav.analyze')) + '</span></button>' +
           '</div>' +
         '</div>' +
       '</header>' +
@@ -67,6 +75,25 @@
     }
     var legal = appRoot.querySelector('.appbar [data-open-legal]');
     if (legal) legal.addEventListener('click', function (e) { e.preventDefault(); ui.legalModal(); });
+    var cta = appRoot.querySelector('[data-focus-search]');
+    if (cta) cta.addEventListener('click', function () {
+      var quick = document.getElementById('quick-input');
+      if (quick) {
+        quick.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        quick.focus({ preventScroll: true });
+        return;
+      }
+      var search = document.getElementById('global-search');
+      if (search) search.focus();
+    });
+  }
+
+  function markNav(routeName) {
+    var target = routeName === 'settings' ? 'settings' : 'dashboard';
+    U.$$('.appnav a[data-nav]', document).forEach(function (a) {
+      if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
   }
 
   function parseRoute() {
@@ -113,6 +140,7 @@
     var route = parseRoute();
     var main = document.getElementById('main');
     main.innerHTML = '';
+    markNav(route.name);
 
     if (route.name === 'analysis') TA.views.analysis.render(main, route.params);
     else if (route.name === 'settings') TA.views.settings.render(main);
