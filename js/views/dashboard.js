@@ -37,34 +37,6 @@
     '</section>';
   }
 
-  function quickCard() {
-    return '<section class="card quick edge-magenta span-12" aria-labelledby="quick-title">' +
-      '<div class="quick-intro">' +
-        '<h2 id="quick-title">' + U.esc(T('dash.quick.title')) + '</h2>' +
-        '<p>' + U.esc(T('dash.quick.lede')) + '</p>' +
-      '</div>' +
-      '<form class="quick-controls" role="search" data-bing-search>' +
-        '<div class="quick-row">' +
-          '<div class="quick-input">' +
-            '<input id="quick-input" type="text" autocomplete="off" spellcheck="false" ' +
-              'aria-label="' + U.attr(T('nav.search')) + '" placeholder="' + U.attr(T('dash.quick.placeholder')) + '" />' +
-          '</div>' +
-          '<button type="submit" class="btn btn-primary" data-quick-go>' + ui.icon('search', 15) + ' ' + U.esc(T('dash.quick.button')) + '</button>' +
-        '</div>' +
-        '<div class="quick-row">' +
-          '<input id="quick-note" class="input quick-idea" type="text" maxlength="280" ' +
-            'aria-label="' + U.attr(T('dash.quick.idea')) + '" placeholder="' + U.attr(T('dash.quick.idea')) + '" />' +
-        '</div>' +
-        '<div class="quick-suggested"><span class="tiny muted">' + U.esc(T('dash.quick.suggested')) + '</span>' +
-          ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'].map(function (s) {
-            return '<button type="button" class="btn btn-sm" data-try="' + s + '">' + s + '</button>';
-          }).join('') +
-        '</div>' +
-      '</form>' +
-      '<div class="quick-note">' + ui.icon('info', 13) + '<span>' + U.esc(T('dash.quick.note')) + '</span></div>' +
-      '</section>';
-  }
-
   function stockDirectoryCard() {
     var live = TA.store.settings().dataMode !== 'sample' && navigator.onLine !== false;
     return '<section class="card stock-directory span-12 edge-cyan" aria-labelledby="stock-directory-title">' +
@@ -244,25 +216,6 @@
   function openAsset(asset, note) {
     if (note) TA.store.setNote(asset.symbol, note);
     TA.app.openAnalysis(asset, { style: TA.store.settings().defaultStyle });
-  }
-
-  function bindQuick(root) {
-    var form = root.querySelector('[data-bing-search]');
-    var input = root.querySelector('#quick-input');
-    var note = root.querySelector('#quick-note');
-    if (form && input) form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var raw = (input.value || '').trim();
-      if (!raw) { input.focus(); return; }
-      var idea = note && note.value ? note.value.trim() : '';
-      TA.app.searchBing([raw, idea].filter(Boolean).join(' '));
-    });
-    U.$$('[data-try]', root).forEach(function (b) {
-      b.addEventListener('click', function () {
-        var a = TA.catalog.find(b.getAttribute('data-try'));
-        if (a) openAsset(a);
-      });
-    });
   }
 
   function bindStockDirectory(root) {
@@ -552,12 +505,11 @@
     root.innerHTML = '<div class="wrap page">' +
       heroBlock(dateLabel) +
       '<div class="dash-grid">' +
-        quickCard() + stockDirectoryCard() + forexCard() + watchCard() + overviewCard() + recentsCard() + eventsCard() + howCard() + disclaimerLine() +
+        stockDirectoryCard() + forexCard() + watchCard() + overviewCard() + recentsCard() + eventsCard() + howCard() + disclaimerLine() +
       '</div>' +
       '<div class="tiny muted" style="text-align:center;margin-top:26px">' + U.esc(T('dash.footer')) + '</div>' +
       '</div>';
 
-    bindQuick(root);
     bindStockDirectory(root);
     bindForexRates(root);
     bindWatchlist(root);
@@ -566,10 +518,10 @@
       if (e.target.closest('[data-open-legal]')) { e.preventDefault(); ui.legalModal(); }
       if (e.target.closest('[data-open-glossary]')) { e.preventDefault(); ui.glossaryModal(); }
       if (e.target.closest('[data-focus-search]')) {
-        var quick = root.querySelector('#quick-input');
-        if (quick) {
-          quick.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          quick.focus({ preventScroll: true });
+        var directory = root.querySelector('#stock-directory-query');
+        if (directory) {
+          directory.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          directory.focus({ preventScroll: true });
         }
       }
       var how = e.target.closest('[data-scroll-how]');

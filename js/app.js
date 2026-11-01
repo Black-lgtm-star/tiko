@@ -117,13 +117,6 @@
             '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
           '</nav>' +
-          '<form class="header-search" role="search" data-bing-search>' +
-            '<span class="search-ico">' + ui.icon('search', 16) + '</span>' +
-            '<input id="global-search" type="search" autocomplete="off" spellcheck="false" ' +
-              'placeholder="' + U.attr(T('nav.search')) + '" aria-label="' + U.attr(T('nav.search')) + '" />' +
-            '<button type="submit" class="search-submit" aria-label="' + U.attr(T('nav.search_bing')) + '" title="' + U.attr(T('nav.search_bing')) + '">' +
-              ui.icon('search', 15) + '</button>' +
-          '</form>' +
           '<div class="header-actions">' +
             '<time class="site-clock" data-site-clock aria-label="Current local date and time" aria-live="off">' +
               '<span class="site-clock-icon" aria-hidden="true">' + ui.icon('clock', 15) + '</span>' +
@@ -133,8 +126,6 @@
               ui.icon('info', 14) + '<span class="label">' + U.esc(T('nav.info')) + '</span></button>' +
             '<a class="icon-btn only-narrow" href="#/settings" aria-label="' + U.attr(T('nav.open_settings')) + '" title="' + U.attr(T('nav.open_settings')) + '">' +
               ui.icon('settings', 17) + '</a>' +
-            '<button class="btn btn-sm btn-primary nav-cta" data-focus-search aria-label="' + U.attr(T('nav.search_bing')) + '">' +
-              ui.icon('search', 14) + '<span>' + U.esc(T('nav.search_bing')) + '</span></button>' +
             '<details class="alerts-menu" data-alerts-menu>' +
               alertsTriggerHtml() +
               '<div class="alerts-popover" data-alerts-popover>' + alertsPopoverHtml() + '</div>' +
@@ -228,13 +219,6 @@
     });
   }
 
-  function searchBing(query) {
-    var q = String(query || '').trim();
-    if (!q) return false;
-    window.open('https://www.bing.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener,noreferrer');
-    return true;
-  }
-
   function mountShell() {
     appRoot.innerHTML = shellHtml();
     shellMounted = true;
@@ -244,30 +228,8 @@
     bindAlertsMenu();
     setAlertsTriggerState();
 
-    var searchForm = appRoot.querySelector('[data-bing-search]');
-    var input = document.getElementById('global-search');
-    if (searchForm && input) {
-      searchForm.addEventListener('submit', function (e) {
-        e.preventDefault();
-        var q = input.value.trim();
-        if (!q) { input.focus(); return; }
-        searchBing(q);
-        input.value = '';
-      });
-    }
     var legal = appRoot.querySelector('.appbar [data-open-legal]');
     if (legal) legal.addEventListener('click', function (e) { e.preventDefault(); ui.legalModal(); });
-    var cta = appRoot.querySelector('[data-focus-search]');
-    if (cta) cta.addEventListener('click', function () {
-      var quick = document.getElementById('quick-input');
-      if (quick) {
-        quick.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        quick.focus({ preventScroll: true });
-        return;
-      }
-      var search = document.getElementById('global-search');
-      if (search) search.focus();
-    });
   }
 
   function mountClock() {
@@ -403,8 +365,7 @@
     },
     refresh: refresh,
     rerender: function () { refresh({ keepScroll: true }); },
-    setLanguage: setLanguage,
-    searchBing: searchBing
+    setLanguage: setLanguage
   };
 
   function boot() {
@@ -423,11 +384,6 @@
           }
         });
       }
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
-      var t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      var input = document.getElementById('global-search');
-      if (input) { e.preventDefault(); input.focus(); }
     });
 
     window.addEventListener('hashchange', function () { renderRoute(false); });

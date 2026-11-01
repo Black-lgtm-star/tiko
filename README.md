@@ -62,7 +62,7 @@ that with a Content-Security-Policy (`vercel.json`):
 - `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
 - `connect-src` permits only the same-origin stock APIs (`/api/stocks`, `/api/quote`) and the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`, `api.frankfurter.dev`); Yahoo Finance is reached by the serverless proxy, never directly by the browser.
 - Browser storage is local to the device. Watchlists, notes and settings use `localStorage`; the optional Alpha Vantage key uses `sessionStorage` and is cleared when the tab ends. Browser storage is not encrypted at rest.
-- Bing searches open in a new tab; the browser sends the submitted query to Bing directly, and TIKO does not ingest search results.
+- No third-party search redirect: ticker lookup stays in the app through the catalog, Markets page and U.S. stock directory.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
 - HSTS, same-origin opener/resource policies and restrictive cross-domain policy headers add transport and origin isolation.
 - Twelve Vercel WAF rules deny unsafe stock and quote API methods, requests missing their required parameters, oversized symbol lists, secret-file probes and common CMS probes; scanner-like API clients receive a challenge. Vercel's platform firewall also applies its managed DDoS mitigation automatically.
@@ -103,7 +103,7 @@ suites total 65 tests.
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
   Answers are editable later in Settings and drive the default lens and copy density.
 - **Dashboard** — a hero read of the current session (watchlist count, six lenses, zero orders placed),
-  Bing web search, quick asset shortcuts, U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market overview,
+  U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market overview,
   and reference events. Recently opened analyses and non-catalog tickers are persisted with enough
   metadata to reopen them.
 - **Analysis page** — identical seven-section structure for every asset:
@@ -254,7 +254,7 @@ reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy de
 shared profile and removed on first load.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
-Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKO's same-origin `/api/quote` proxy to Yahoo Finance. Submitted Bing searches are sent to Bing.
+Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKO's same-origin `/api/quote` proxy to Yahoo Finance.
 
 ### Adding a market data provider
 
@@ -285,7 +285,7 @@ still being translated.
 ## Accessibility and UX notes
 
 - Skip link, labeled landmarks, `aria-pressed` chips, `aria-selected` tabs, focus-trapped modals,
-  keyboard search (`/`), visible focus styles, reduced-motion support.
+  visible focus styles, reduced-motion support.
 - The copilot form is keyboard-first: labeled input, live `role="log"` thread, suggested-question
   buttons and citations that move focus to the cited section instead of changing the route.
 - Responsive from narrow mobile to desktop; the dashboard grid collapses to single-column cards.
