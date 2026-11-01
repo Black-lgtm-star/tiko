@@ -1,6 +1,7 @@
 /* data.js — market data adapters.
    live crypto: CoinGecko public API (no key)
-   live stocks: Alpha Vantage (user-supplied key, optional)
+   live stocks: /api/quote, a same-origin proxy for Yahoo Finance (no key)
+                Alpha Vantage remains an optional keyed fallback
    otherwise:  deterministic synthetic series, always labeled "sample"   */
 (function (TA) {
   'use strict';
@@ -9,6 +10,7 @@
   var CG = 'https://api.coingecko.com/api/v3';
   var AV = 'https://www.alphavantage.co/query';
   var FX = 'https://api.frankfurter.dev/v2';
+  var QP = '/api/quote';
 
   var cache = new Map();
   var chain = Promise.resolve();
@@ -343,6 +345,105 @@
     });
   }
 
+  /* ================= Yahoo Finance via /api/quote ================= */
+  function canUseProxy() {
+    return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
+  }
+
+  function proxyChart(asset, timeframe) {
+    var symbol = String(asset.symbol || '').trim().toUpperCase();
+    var mode = timeframe === 'intraday' ? 'intraday' : 'daily';
+    var minBars = mode === 'intraday' ? 8 : 20;
+    var ttl = mode === 'intraday' ? 45000 : 3 * 60 * 1000;
+    return cached('proxy:chart:' + symbol + ':' + mode, ttl, function () {
+      return doFetch(QP + '?symbol=' + encodeURIComponent(symbol) + '&timeframe=' + mode);
+    }).then(function (payload) {
+      var candles = ((payload && payload.candles) || []).filter(function (c) {
+        return c && U.isNum(c.c) && c.c > 0;
+      }).map(function (c) {
+        return {
+          t: c.t,
+          o: U.isNum(c.o) ? c.o : c.c,
+          h: U.isNum(c.h) ? c.h : c.c,
+          l: U.isNum(c.l) ? c.l : c.c,
+          c: c.c,
+          v: U.isNum(c.v) ? c.v : null
+        };
+      });
+      if (candles.length < minBars) throw DataError('empty', 'Short series');
+      var last = candles[candles.length - 1];
+      var previous = candles.length > 1 ? candles[candles.length - 2].c : last.c;
+      var price = U.isNum(payload.price) ? payload.price : last.c;
+      var previousClose = U.isNum(payload.previousClose) ? payload.previousClose : previous;
+      return {
+        asset: Object.assign({}, asset, {
+          name: payload.name || asset.name,
+          exchange: payload.exchange || asset.exchange,
+          currency: payload.currency || asset.currency || 'USD'
+        }),
+        candles: candles,
+        quote: {
+          price: price,
+          prevClose: previousClose,
+          changePct: U.isNum(payload.changePct)
+            ? payload.changePct
+            : previousClose > 0 ? (price / previousClose - 1) * 100 : 0,
+          changeWindow: '1d',
+          dayHigh: U.isNum(payload.dayHigh) ? payload.dayHigh : last.h,
+          dayLow: U.isNum(payload.dayLow) ? payload.dayLow : last.l,
+          volume: U.isNum(payload.volume) ? payload.volume : last.v,
+          marketCap: null,
+          turnover: null,
+          rank: null
+        },
+        meta: {
+          dataMode: 'live',
+          provider: 'yahoo',
+          providerUrl: payload.sourceUrl || 'https://finance.yahoo.com/quote/' + encodeURIComponent(symbol),
+          apiUrl: QP + '?symbol=' + encodeURIComponent(symbol),
+          retrievedAt: Date.now(),
+          seriesEnd: last.t,
+          providerUpdatedAt: U.isNum(payload.asOf) ? payload.asOf : null,
+          interval: mode,
+          timeframe: mode,
+          barCount: candles.length,
+          fallback: false,
+          grainNote: mode === 'intraday'
+            ? '5-minute bars via Yahoo Finance'
+            : 'Daily bars via Yahoo Finance',
+          delayNote: true
+        }
+      };
+    });
+  }
+
+  function proxyQuotes(symbols) {
+    var list = [];
+    (symbols || []).forEach(function (raw) {
+      var symbol = String(raw || '').trim().toUpperCase();
+      if (/^[A-Z0-9.^=-]{1,16}$/.test(symbol) && list.indexOf(symbol) < 0) list.push(symbol);
+    });
+    list = list.slice(0, 10);
+    if (!list.length) return Promise.resolve([]);
+    var key = 'proxy:quotes:' + list.slice().sort().join(',');
+    return cached(key, 45000, function () {
+      return doFetch(QP + '?symbols=' + encodeURIComponent(list.join(',')));
+    }).then(function (payload) {
+      return (payload && payload.quotes) || [];
+    });
+  }
+
+  function quoteEntry(quote, fallbackName) {
+    return {
+      price: quote.price,
+      changePct: quote.changePct,
+      spark: (quote.spark || []).slice(-30),
+      dataMode: 'live',
+      asOf: U.isNum(quote.asOf) ? quote.asOf : Date.now(),
+      name: quote.name || fallbackName || null
+    };
+  }
+
   /* ================= Sample generator ================= */
   function lastSessionEnd() {
     var d = new Date();
@@ -511,8 +612,16 @@
       if (asset.assetClass === 'crypto' && canLive) {
         return liveCrypto(asset, timeframe).catch(fail);
       }
-      if (asset.assetClass === 'stock' && canLive && settings.avKey) {
-        return liveStock(asset, timeframe, settings.avKey).catch(fail);
+      if (asset.assetClass === 'stock' && canLive) {
+        if (canUseProxy()) {
+          return proxyChart(asset, timeframe)
+            .catch(function (proxyErr) {
+              if (!settings.avKey) throw proxyErr;
+              return liveStock(asset, timeframe, settings.avKey).catch(function () { throw proxyErr; });
+            })
+            .catch(fail);
+        }
+        if (settings.avKey) return liveStock(asset, timeframe, settings.avKey).catch(fail);
       }
       return sampleData(asset, timeframe, {});
     },
@@ -548,7 +657,8 @@
     getOverview: function () {
       var settings = TA.store.settings();
       var liveAllowed = settings.dataMode !== 'sample' && navigator.onLine !== false;
-      var stocks = C.overviewStocks().map(function (a) {
+      var overviewAssets = C.overviewStocks();
+      var stocks = overviewAssets.map(function (a) {
         var d = sampleQuick(a);
         return {
           symbol: a.symbol, name: a.name, assetClass: 'stock',
@@ -558,9 +668,9 @@
       if (!liveAllowed) {
         return Promise.resolve({ live: false, crypto: [], stocks: stocks, retrievedAt: Date.now() });
       }
-      return cgMarkets(C.cryptos().map(function (a) { return a.coingeckoId; }), 90000)
+      var cryptoP = cgMarkets(C.cryptos().map(function (a) { return a.coingeckoId; }), 90000)
         .then(function (markets) {
-          var crypto = (markets || []).filter(function (m) { return m && U.isNum(m.current_price); })
+          return (markets || []).filter(function (m) { return m && U.isNum(m.current_price); })
             .map(function (m) {
               var spark = m.sparkline_in_7d && m.sparkline_in_7d.price ? m.sparkline_in_7d.price : [];
               return {
@@ -574,11 +684,29 @@
                 id: m.id
               };
             });
-          return { live: true, crypto: crypto, stocks: stocks, retrievedAt: Date.now() };
         })
-        .catch(function () {
-          return { live: false, crypto: [], stocks: stocks, retrievedAt: Date.now() };
+        .catch(function () { return []; });
+      var stockP = canUseProxy()
+        ? proxyQuotes(overviewAssets.map(function (a) { return a.symbol; })).catch(function () { return []; })
+        : Promise.resolve([]);
+      return Promise.all([cryptoP, stockP]).then(function (out) {
+        var crypto = out[0];
+        var liveBySymbol = {};
+        out[1].forEach(function (q) {
+          if (q && q.symbol && U.isNum(q.price)) liveBySymbol[q.symbol] = q;
         });
+        stocks = stocks.map(function (stock) {
+          var q = liveBySymbol[stock.symbol];
+          if (!q) return stock;
+          return {
+            symbol: stock.symbol, name: q.name || stock.name, assetClass: 'stock',
+            price: q.price, changePct: q.changePct, spark: (q.spark || []).slice(-30),
+            dataMode: 'live', asOf: q.asOf
+          };
+        });
+        var anyLive = crypto.length > 0 || stocks.some(function (s) { return s.dataMode === 'live'; });
+        return { live: anyLive, crypto: crypto, stocks: stocks, retrievedAt: Date.now() };
+      });
     },
 
     getQuotes: function (entries) {
@@ -590,6 +718,8 @@
           return (a && a.coingeckoId) || e.coingeckoId || null;
         })
         .filter(Boolean);
+      var stockSymbols = entries.filter(function (e) { return e.assetClass === 'stock'; })
+        .map(function (e) { return e.symbol; });
       var result = {};
       entries.forEach(function (e) {
         if (e.assetClass === 'stock') {
@@ -603,23 +733,35 @@
           }
         }
       });
-      if (!liveAllowed || !cryptoIds.length) return Promise.resolve(result);
-      return cgMarkets(cryptoIds, 60000).then(function (markets) {
-        (markets || []).forEach(function (m) {
-          if (!m) return;
-          var sym = (m.symbol || '').toUpperCase();
-          result[sym] = {
-            price: m.current_price,
-            changePct: U.isNum(m.price_change_percentage_24h_in_currency)
-              ? m.price_change_percentage_24h_in_currency
-              : m.price_change_percentage_24h,
-            spark: (m.sparkline_in_7d && m.sparkline_in_7d.price ? m.sparkline_in_7d.price : []).slice(-48),
-            dataMode: 'live',
-            asOf: m.last_updated ? Date.parse(m.last_updated) : Date.now()
-          };
-        });
-        return result;
-      }).catch(function () { return result; });
+      if (!liveAllowed) return Promise.resolve(result);
+      var jobs = [];
+      if (cryptoIds.length) {
+        jobs.push(cgMarkets(cryptoIds, 60000).then(function (markets) {
+          (markets || []).forEach(function (m) {
+            if (!m) return;
+            var sym = (m.symbol || '').toUpperCase();
+            result[sym] = {
+              price: m.current_price,
+              changePct: U.isNum(m.price_change_percentage_24h_in_currency)
+                ? m.price_change_percentage_24h_in_currency
+                : m.price_change_percentage_24h,
+              spark: (m.sparkline_in_7d && m.sparkline_in_7d.price ? m.sparkline_in_7d.price : []).slice(-48),
+              dataMode: 'live',
+              asOf: m.last_updated ? Date.parse(m.last_updated) : Date.now()
+            };
+          });
+        }).catch(function () {}));
+      }
+      if (stockSymbols.length && canUseProxy()) {
+        jobs.push(proxyQuotes(stockSymbols).then(function (quotes) {
+          quotes.forEach(function (q) {
+            if (!q || !q.symbol || !U.isNum(q.price)) return;
+            result[q.symbol] = quoteEntry(q, (C.find(q.symbol) || {}).name);
+          });
+        }).catch(function () {}));
+      }
+      if (!jobs.length) return Promise.resolve(result);
+      return Promise.all(jobs).then(function () { return result; });
     },
 
     testAlphaVantage: function (key) {

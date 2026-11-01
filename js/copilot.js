@@ -5,14 +5,15 @@
   'use strict';
   var U = TA.util;
 
-  var PROMPTS = ['setup', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
-  var INTENTS = ['setup', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'data', 'summary'];
+  var PROMPTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
+  var INTENTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'data', 'summary'];
   var CITES = ['plan', 'snapshot', 'context', 'cases', 'levels', 'scenarios', 'risks', 'sources'];
 
   var RULES = [
     { id: 'data', re: /\b(data|datos|source|sources|fuente|fuentes|fresh|fresc\w*|updated?|actualiz\w*|live|sample|de muestra|delay\w*|retras\w*|feed|retrieved|proveedor)\b/ },
     { id: 'volume', re: /\b(volume|volumen|liquidity|liquidez|participation|participacion)\b/ },
     { id: 'volatility', re: /\b(volatil\w*|atr|range|rango|move|movimiento|amplitud)\b/ },
+    { id: 'exits', re: /\b(stop[ -]?loss(?:es)?|take[ -]?profits?|profit targets?|targets?|exits?|salidas?|objetivos?|metas?|ganancias?|beneficios?|tp|sl)\b/ },
     { id: 'risk', re: /\b(risks?|riesgos?|invalidat\w*|invalid\w*|stop|downside|wrong|perder|perdida|protege?|proteccion)\b/ },
     { id: 'scenario', re: /\b(scenarios?|simulation|simulate|outcomes?|escenarios?|simulacion|simular|resultados|breakout|break|ruptura|rompe|if)\b/ },
     { id: 'levels', re: /\b(levels?|niveles?|support|soporte|resistance|resistencia)\b/ },
@@ -195,6 +196,68 @@
       paragraphs.push(p.warnings.map(function (k) { return T(k); }).join(' '));
     }
     return { paragraphs: paragraphs, cites: ['plan', 'levels'], followups: ['risk', 'levels'] };
+  }
+
+  function rrText(value) {
+    return U.isNum(value) ? value.toFixed(1) + ' : 1' : '—';
+  }
+
+  function exitsAnswer(a, plan) {
+    var p = plan || {};
+    var paragraphs = [];
+    var hasLevels = U.isNum(p.entry) && U.isNum(p.stop) && U.isNum(p.target) &&
+      p.state !== 'no_edge' && p.state !== 'invalidated';
+
+    if (hasLevels) {
+      paragraphs.push(T('copilot.a.exits.plan', {
+        side: T('plan.side.' + (p.side || 'none')),
+        e: p.entryText,
+        s: p.stopText,
+        loss: U.fmtPct(-Math.abs((p.stop / p.entry - 1) * 100), { sign: true }),
+        t: p.targetText,
+        gain: U.fmtPct(Math.abs((p.target / p.entry - 1) * 100), { sign: true }),
+        rr: p.rrText
+      }));
+      if (p.state === 'wait' && U.isNum(p.trigger)) {
+        paragraphs.push(T('copilot.a.exits.trigger', { t: p.triggerText, e: p.entryText }));
+      }
+    } else {
+      var suggestion = TA.tradeplan.exits(a, {
+        lang: lang(),
+        side: p.side === 'long' || p.side === 'short' ? p.side : null
+      });
+      if (!suggestion) {
+        paragraphs.push(T('copilot.a.exits.none'));
+      } else if (suggestion.maps.length === 1) {
+        var one = suggestion.maps[0];
+        paragraphs.push(T('copilot.a.exits.one', {
+          p: suggestion.priceText,
+          side: T('plan.side.' + one.side),
+          s: one.stopText,
+          loss: U.fmtPct(-one.lossPct, { sign: true }),
+          atr: U.isNum(one.stopAtr) ? one.stopAtr.toFixed(1) : '—',
+          t: one.targetText,
+          gain: U.fmtPct(one.gainPct, { sign: true }),
+          rr: rrText(one.rr)
+        }));
+      } else {
+        paragraphs.push(T('copilot.a.exits.both', { p: suggestion.priceText }));
+        suggestion.maps.forEach(function (map) {
+          paragraphs.push(T('copilot.a.exits.' + map.side, {
+            s: map.stopText,
+            loss: U.fmtPct(-map.lossPct, { sign: true }),
+            t: map.targetText,
+            gain: U.fmtPct(map.gainPct, { sign: true }),
+            rr: rrText(map.rr)
+          }));
+        });
+      }
+      paragraphs.push(T('copilot.a.exits.method'));
+    }
+
+    if (p.sample) paragraphs.push(T('copilot.a.exits.sample'));
+    paragraphs.push(T('copilot.a.exits.caveat'));
+    return { paragraphs: paragraphs, cites: ['plan', 'levels'], followups: ['setup', 'risk'] };
   }
 
   function levelsAnswer(a, plan) {
@@ -433,6 +496,7 @@
 
   var RESOLVERS = {
     setup: setupAnswer,
+    exits: exitsAnswer,
     levels: levelsAnswer,
     risk: riskAnswer,
     trend: trendAnswer,

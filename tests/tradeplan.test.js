@@ -270,3 +270,39 @@ test('Spanish copy resolves through the locale', () => {
   assert.equal(TA.i18n.t('plan.foot'), 'Plan basado en reglas · no se envía ninguna orden');
   TA.i18n.set('en');
 });
+
+test('exit suggestions follow the lean with an ATR-bounded stop', () => {
+  const s = TA.tradeplan.exits(ana({}), { lang: 'en' });
+  assert.equal(s.side, 'long');
+  assert.equal(s.maps.length, 1);
+  const m = s.maps[0];
+  assert.equal(m.entry, 100);
+  assert.equal(m.stop, 97);
+  assert.ok(m.stopAtr >= 0.9 && m.stopAtr <= 1.5);
+  assert.equal(m.target, 105);
+  assert.ok(m.rr >= 1.3);
+  assert.equal(m.entryText, '$ 100.00');
+});
+
+test('neutral reads get structure-based exits for both sides', () => {
+  const s = TA.tradeplan.exits(ana({ lean: { dir: 'neutral', confidence: 'high' } }), { lang: 'en' });
+  assert.equal(s.side, null);
+  assert.equal(s.maps.map((m) => m.side).join(','), 'long,short');
+  const [long, short] = s.maps;
+  assert.ok(long.stop < 100 && long.target > 100);
+  assert.ok(short.stop > 100 && short.target < 100);
+  assert.equal(short.stop, 103);
+  assert.equal(short.target, 95);
+});
+
+test('exit suggestions are deterministic and can be forced to one side', () => {
+  const a = ana({ lean: { dir: 'neutral', confidence: 'high' } });
+  const short = TA.tradeplan.exits(a, { lang: 'en', side: 'short' });
+  assert.equal(short.maps.length, 1);
+  assert.equal(short.maps[0].side, 'short');
+  assert.equal(JSON.stringify(short), JSON.stringify(TA.tradeplan.exits(a, { lang: 'en', side: 'short' })));
+});
+
+test('exit suggestions return null without a usable price', () => {
+  assert.equal(TA.tradeplan.exits({ facts: { price: null } }, { lang: 'en' }), null);
+});

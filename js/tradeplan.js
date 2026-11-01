@@ -404,6 +404,59 @@
     return plan;
   }
 
+  // Structure-based exit suggestions for a hypothetical position at the current
+  // price. Reuses the plan's stop and target rules, so a suggestion never implies
+  // a confirmed setup. One side when the lean or the caller picks one, both when
+  // the read is neutral.
+  function exits(a, opts) {
+    opts = opts || {};
+    a = a || {};
+    var f = a.facts || {};
+    var lang = opts.lang || a.lang || 'en';
+    var price = U.isNum(opts.price) && opts.price > 0 ? opts.price : f.price;
+    if (!U.isNum(price) || price <= 0) return null;
+    var atr = U.isNum(f.atr) && f.atr > 0 ? f.atr : Math.max(price * 0.015, 1e-9);
+    var s1 = a.nearestSupport ? a.nearestSupport.price : null;
+    var r1 = a.nearestResistance ? a.nearestResistance.price : null;
+    var lean = a.lean ? a.lean.dir : 'neutral';
+    var side = opts.side === 'long' || opts.side === 'short'
+      ? opts.side
+      : lean === 'bull' ? 'long' : lean === 'bear' ? 'short' : null;
+
+    function suggest(dir) {
+      var stop = dir === 'long' ? longStop(price, s1, atr) : shortStop(price, r1, atr);
+      var target = pickTarget(dir, price, stop, dir === 'long' ? r1 : s1);
+      var risk = Math.abs(price - stop);
+      var level = dir === 'long' ? a.nearestSupport : a.nearestResistance;
+      return {
+        side: dir,
+        entry: price,
+        stop: stop,
+        target: target,
+        entryText: fmtP(price, lang),
+        stopText: fmtP(stop, lang),
+        targetText: U.isNum(target) ? fmtP(target, lang) : '—',
+        lossPct: price ? Math.abs(stop / price - 1) * 100 : null,
+        gainPct: U.isNum(target) ? Math.abs(target / price - 1) * 100 : null,
+        rr: risk > 0 && U.isNum(target) ? Math.abs(target - price) / risk : null,
+        stopAtr: risk > 0 ? risk / atr : null,
+        stopLevelText: level && level.priceText ? level.priceText : (U.isNum(level && level.price) ? fmtP(level.price, lang) : null),
+        targetLevelText: dir === 'long'
+          ? (U.isNum(r1) && target === r1 ? (a.nearestResistance.priceText || fmtP(r1, lang)) : null)
+          : (U.isNum(s1) && target === s1 ? (a.nearestSupport.priceText || fmtP(s1, lang)) : null)
+      };
+    }
+
+    return {
+      price: price,
+      priceText: fmtP(price, lang),
+      atr: atr,
+      atrText: U.isNum(f.atr) && f.atrText ? f.atrText : fmtP(atr, lang),
+      side: side,
+      maps: side ? [suggest(side)] : [suggest('long'), suggest('short')]
+    };
+  }
+
   function size(plan, settings) {
     if (!plan || !plan.sizeAllowed || !U.isNum(plan.entry) || !U.isNum(plan.stop)) return null;
     var s = settings || TA.store.settings();
@@ -433,5 +486,5 @@
     };
   }
 
-  TA.tradeplan = { build: build, size: size };
+  TA.tradeplan = { build: build, size: size, exits: exits };
 })(window.TA = window.TA || {});

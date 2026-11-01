@@ -38,6 +38,35 @@
       "src": "^/api/stocks$",
       "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i).*(?:curl|wget|sqlmap|nikto|scrapy|python-requests).*" } }],
       "mitigate": { "action": "challenge" }
+    },
+    {
+      "src": "^/api/quote$",
+      "methods": ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/quote$",
+      "missing": [{ "type": "query", "key": "symbol" }, { "type": "query", "key": "symbols" }],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/quote$",
+      "has": [
+        { "type": "query", "key": "symbol", "value": { "re": "^.{33,}$" } }
+      ],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/quote$",
+      "has": [
+        { "type": "query", "key": "symbols", "value": { "re": "^.{201,}$" } }
+      ],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/quote$",
+      "has": [{ "type": "header", "key": "user-agent", "value": { "re": "(?i).*(?:curl|wget|sqlmap|nikto|scrapy|python-requests).*" } }],
+      "mitigate": { "action": "challenge" }
     }
   ],
   "headers": [

@@ -66,9 +66,13 @@
   }
 
   function stockDirectoryCard() {
+    var live = TA.store.settings().dataMode !== 'sample' && navigator.onLine !== false;
     return '<section class="card stock-directory span-12 edge-cyan" aria-labelledby="stock-directory-title">' +
       '<div class="card-head stock-directory-head"><div><h2 id="stock-directory-title">' + U.esc(T('dash.stocks.title')) + '</h2>' +
-      '<p class="tiny muted">' + U.esc(T('dash.stocks.lede')) + '</p></div><span class="badge badge-sample">' + U.esc(T('dash.stocks.badge')) + '</span></div>' +
+      '<p class="tiny muted">' + U.esc(T('dash.stocks.lede')) + '</p></div>' +
+      (live
+        ? '<span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('dash.stocks.badge')) + '</span>'
+        : '<span class="badge badge-sample">' + U.esc(T('badge.sample')) + '</span>') + '</div>' +
       '<form class="stock-directory-form" data-stock-search role="search">' +
         '<input class="input" type="search" id="stock-directory-query" minlength="2" maxlength="80" autocomplete="off" ' +
           'placeholder="' + U.attr(T('dash.stocks.placeholder')) + '" aria-label="' + U.attr(T('dash.stocks.placeholder')) + '" required />' +
@@ -76,7 +80,7 @@
       '</form>' +
       '<div class="stock-directory-status tiny muted" data-stock-status aria-live="polite">' + U.esc(T('dash.stocks.hint')) + '</div>' +
       '<div class="stock-directory-results" data-stock-results></div>' +
-      '<p class="tiny muted stock-directory-foot">' + U.esc(T('dash.stocks.sample_note')) + '</p>' +
+      '<p class="tiny muted stock-directory-foot">' + U.esc(T(live ? 'dash.stocks.note' : 'dash.stocks.note_sample')) + '</p>' +
     '</section>';
   }
 
@@ -502,7 +506,12 @@
   function paintOverview(root, overview) {
     var box = root.querySelector('[data-overview]');
     if (!box) return;
-    var pool = overview.live ? overview.crypto : overview.stocks;
+    var liveStocks = overview.stocks.filter(function (s) { return s.dataMode === 'live'; });
+    var pool = overview.live ? overview.crypto.concat(liveStocks) : overview.stocks;
+    var footKey = overview.crypto.length && liveStocks.length ? 'dash.overview.live_foot'
+      : overview.crypto.length ? 'dash.overview.crypto_foot'
+      : liveStocks.length ? 'dash.overview.stocks_foot'
+      : 'dash.overview.sample_foot';
     if (!pool.length) {
       box.innerHTML = '<div class="empty">' + ui.icon('info', 18) + '<span>' + U.esc(T('dash.overview.unavailable')) + '</span></div>';
       return;
@@ -526,9 +535,7 @@
           laggards.map(row).join('') + '</div>' +
       '</div>' +
       '<div class="card-foot tiny muted" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-        '<span>' + U.esc(overview.live
-          ? T('dash.overview.live_foot', { time: U.fmtTime(overview.retrievedAt, lang()) })
-          : T('dash.overview.sample_foot')) + '</span>' +
+        '<span>' + U.esc(T(footKey, { time: U.fmtTime(overview.retrievedAt, lang()) })) + '</span>' +
         (overview.live ? ui.modeBadge({ dataMode: 'live' }) : ui.modeBadge({ dataMode: 'sample' })) +
       '</div>';
 

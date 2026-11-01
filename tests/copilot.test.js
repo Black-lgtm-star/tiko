@@ -143,6 +143,7 @@ const STATE_CASES = [
 
 const QUESTIONS = {
   setup: 'What is the setup now?',
+  exits: 'Where should my stop loss and take profit be?',
   levels: 'Where are the key levels?',
   risk: 'What invalidates this setup?',
   trend: 'Is the trend supportive?',
@@ -186,6 +187,7 @@ test('Spanish questions route to the same intents', () => {
   TA.i18n.set('es');
   const cases = [
     ['¿Cuál es la situación ahora?', 'setup'],
+    ['¿Dónde deberían estar mi stop y mi objetivo?', 'exits'],
     ['¿Dónde están los niveles clave?', 'levels'],
     ['¿Qué invalidaría esta situación?', 'risk'],
     ['¿La tendencia acompaña?', 'trend'],
@@ -242,6 +244,62 @@ test('setup answer repeats the plan and the confirmation count', () => {
   assert.ok(text.indexOf('$ 101.00') >= 0, text);
   assert.ok(text.indexOf('$ 98.00') >= 0, text);
   assert.ok(text.indexOf('4 of 4 confirmation checks pass') >= 0, text);
+});
+
+test('exits answer reports the plan stop and target when a setup exists', () => {
+  const ans = answer(QUESTIONS.exits);
+  assert.equal(ans.id, 'exits');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('$ 98.00') >= 0, text);
+  assert.ok(text.indexOf('$ 106.00') >= 0, text);
+  assert.ok(text.indexOf('-2.97%') >= 0, text);
+  assert.ok(text.indexOf('+4.95%') >= 0, text);
+  assert.ok(text.indexOf('$ 101.00 trigger') >= 0, text);
+  assert.ok(text.indexOf('not predictions') >= 0, text);
+  assert.deepEqual(cites(ans), ['plan', 'levels']);
+});
+
+test('exits answer signs the stop as a loss on a short plan', () => {
+  const over = {
+    lean: { dir: 'bear', confidence: 'high' },
+    nearestSupport: { price: 99, priceText: '$ 99.00' }, nextSupport: { price: 95 },
+    nearestResistance: { price: 101, priceText: '$ 101.00' }, nextResistance: { price: 106 }
+  };
+  const ans = answer(QUESTIONS.exits, over);
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Short side plan') >= 0, text);
+  assert.ok(text.indexOf('$ 101.00 (-2.02%') >= 0, text);
+  assert.ok(text.indexOf('$ 95.00 (+4.04%') >= 0, text);
+});
+
+test('exits answer suggests both sides when the read is neutral and has no edge', () => {
+  const over = {
+    lean: { dir: 'neutral', confidence: 'high' },
+    nearestSupport: { price: 90, priceText: '$ 90.00' }, nextSupport: { price: 85 },
+    nearestResistance: { price: 110, priceText: '$ 110.00' }, nextResistance: { price: 115 }
+  };
+  const ans = answer(QUESTIONS.exits, over);
+  assert.equal(ans.id, 'exits');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('no confirmed setup') >= 0, text);
+  assert.ok(text.indexOf('Buy:') >= 0, text);
+  assert.ok(text.indexOf('Sell:') >= 0, text);
+  assert.ok(text.indexOf('$ 97.00') >= 0, text);
+  assert.ok(text.indexOf('$ 103.00') >= 0, text);
+});
+
+test('exits answer gives one side when the lean is directional without a setup', () => {
+  const over = {
+    nearestSupport: { price: 90, priceText: '$ 90.00' }, nextSupport: { price: 85 },
+    nearestResistance: { price: 110, priceText: '$ 110.00' }, nextResistance: { price: 115 }
+  };
+  const ans = answer(QUESTIONS.exits, over);
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('no confirmed setup') >= 0, text);
+  assert.ok(text.indexOf('Long side') >= 0, text);
+  assert.ok(text.indexOf('Sell:') < 0, text);
+  assert.ok(text.indexOf('$ 97.00') >= 0, text);
+  assert.ok(text.indexOf('$ 110.00') >= 0, text);
 });
 
 test('volume answer reads participation and the checklist', () => {

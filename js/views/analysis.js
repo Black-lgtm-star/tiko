@@ -235,6 +235,41 @@
     return '<div data-levels-grid>' + planLevelsGridHtml(plan) + '</div>' + planLevelsEditHtml(plan);
   }
 
+  function rrText(value) {
+    return U.isNum(value) ? value.toFixed(1) + ' : 1' : '—';
+  }
+
+  /* The copilot's structure-based exits, shown only when the plan itself has no
+     complete stop and target. A chosen side already renders planScenarioHtml. */
+  function planSuggestedExitsHtml(plan, entry) {
+    if (!TA.tradeplan.exits || plan.scenario) return '';
+    if (U.isNum(plan.entry) && U.isNum(plan.stop) && U.isNum(plan.target)) return '';
+    var suggestion = TA.tradeplan.exits(entry.a, { lang: lang(), side: entry.selectedSide });
+    if (!suggestion || !suggestion.maps.length) return '';
+    var rows = suggestion.maps.map(function (m) {
+      return '<div class="plan-exit-row ' + m.side + '">' +
+        '<span class="plan-exit-side">' + esc(T(m.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell')) + '</span>' +
+        '<span class="plan-exit-cell"><span class="k">' + esc(T('plan.exits.stop')) + '</span>' +
+          '<span class="v mono">' + esc(m.stopText) + '</span>' +
+          '<span class="n">' + esc(U.fmtPct(-m.lossPct, { sign: true })) + '</span></span>' +
+        '<span class="plan-exit-cell"><span class="k">' + esc(T('plan.exits.target')) + '</span>' +
+          '<span class="v mono">' + esc(m.targetText) + '</span>' +
+          '<span class="n">' + esc(U.fmtPct(m.gainPct, { sign: true })) + '</span></span>' +
+        '<span class="plan-exit-cell"><span class="k">' + esc(T('plan.exits.rr')) + '</span>' +
+          '<span class="v mono">' + esc(rrText(m.rr)) + '</span></span>' +
+      '</div>';
+    }).join('');
+    return '<section class="plan-exits" aria-label="' + U.attr(T('plan.exits.title')) + '">' +
+      '<div class="plan-exits-head"><div><span class="eyebrow">' + esc(T('copilot.title')) + '</span>' +
+        '<h3>' + esc(T('plan.exits.title')) + '</h3>' +
+        '<p class="tiny muted">' + esc(T(suggestion.maps.length > 1 ? 'plan.exits.subBoth' : 'plan.exits.sub')) + '</p></div>' +
+        '<span class="badge badge-neutral">' +
+          esc(T(plan.state === 'practice' ? 'plan.state.practice' : 'plan.state.no_edge')) + '</span></div>' +
+      '<div class="plan-exits-grid">' + rows + '</div>' +
+      '<p class="tiny muted plan-exits-note">' + esc(T('plan.exits.note')) + '</p>' +
+    '</section>';
+  }
+
   function planSizeCell(label, value) {
     return '<div class="plan-size-cell"><span class="k">' + esc(label) + '</span>' +
       '<span class="v mono">' + esc(value) + '</span></div>';
@@ -430,6 +465,7 @@
         '</div>' +
         planLevelsHtml(plan) +
       '</div>' +
+      planSuggestedExitsHtml(plan, entry) +
       planStepsHtml(plan) +
       simulationPanelHtml(entry) +
       planScenarioHtml(plan) +
@@ -945,12 +981,9 @@
   function dataBanners(a) {
     var m = a.meta;
     if (m.dataMode === 'sample') {
-      var cta = a.asset.assetClass === 'stock' && TA.store.settings().dataMode !== 'sample'
-        ? '<a class="btn btn-sm" href="#/settings" style="margin-left:auto;flex:none">' + esc(T('an.sample_banner_cta')) + '</a>'
-        : '';
       return '<div class="sample-banner">' + ui.icon('warning', 15) +
         '<div><b>' + esc(T('an.sample_banner')) + '</b>' +
-        (m.fallback ? '<br>' + esc(T('an.fallback_banner')) : '') + '</div>' + cta + '</div>';
+        (m.fallback ? '<br>' + esc(T('an.fallback_banner')) : '') + '</div></div>';
     }
     return '';
   }
