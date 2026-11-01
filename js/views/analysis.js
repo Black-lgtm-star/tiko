@@ -527,6 +527,49 @@
     el.innerHTML = copilotBriefHtml(TA.copilot.brief(entry.a, entry.plan));
   }
 
+  function scanResultHtml(scan) {
+    if (!scan || !scan.ok) return '';
+    var conf = Math.round(clampPct((scan.confidence || 0) * 100));
+    var quality = scan.quality || 'fair';
+    function cell(labelKey, value) {
+      return '<div><span class="k">' + esc(T(labelKey)) + '</span><span class="v">' + esc(value) + '</span></div>';
+    }
+    return '<div class="copilot-scan-card ' + U.attr(quality) + '">' +
+      '<div class="copilot-scan-top"><span class="k">' + esc(T('copilot.scan.result')) + '</span>' +
+        '<span class="badge badge-' + (quality === 'good' ? 'live' : 'neutral') + '">' +
+          esc(T('copilot.scan.quality.' + quality) + ' · ' + T('copilot.scan.conf', { n: conf })) + '</span></div>' +
+      '<div class="copilot-scan-stats">' +
+        cell('copilot.scan.direction', T('copilot.scan.dir.' + (scan.direction || 'flat'))) +
+        cell('copilot.scan.position', T('copilot.scan.positionValue', { p: Math.round(clampPct(scan.positionPct)) })) +
+        cell('copilot.scan.type', T('copilot.scan.type.' + (scan.chartType || 'line'))) +
+      '</div>' +
+      '<p class="tiny muted copilot-scan-note">' + esc(T('copilot.scan.note')) + '</p>' +
+      '<div class="copilot-scan-actions">' +
+        '<button type="button" class="copilot-prompt" data-copilot-scan-ask>' + esc(T('copilot.scan.ask')) + '</button>' +
+        '<button type="button" class="copilot-prompt" data-copilot-scan-clear>' + esc(T('copilot.scan.clear')) + '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function clampPct(v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
+
+  function copilotScanHtml(entry) {
+    return '<div class="copilot-scan" data-copilot-scan>' +
+      '<div class="copilot-scan-head"><span class="k">' + esc(T('copilot.scan.title')) + '</span></div>' +
+      '<label class="copilot-drop">' +
+        '<input type="file" accept="image/*" class="sr-only" data-copilot-file>' +
+        '<span class="copilot-drop-icon" aria-hidden="true">' + ui.icon('image', 16) + '</span>' +
+        '<span class="copilot-drop-copy"><strong>' + esc(T('copilot.scan.drop')) + '</strong>' +
+          '<span class="tiny muted">' + esc(T('copilot.scan.hint')) + '</span></span>' +
+        '<span class="btn btn-sm btn-ghost copilot-drop-btn" aria-hidden="true">' + esc(T('copilot.scan.choose')) + '</span>' +
+      '</label>' +
+      '<div class="copilot-scan-result" data-copilot-scan-result>' +
+        scanResultHtml(entry && entry.chartScan) +
+      '</div>' +
+      '<p class="copilot-scan-err tiny" data-copilot-scan-err role="alert" hidden></p>' +
+    '</div>';
+  }
+
   function copilotCard(entry) {
     var brief = TA.copilot.brief(entry.a, entry.plan);
     return '<section class="card copilot edge-cyan" data-copilot aria-labelledby="copilot-title">' +
@@ -545,6 +588,7 @@
       '<div class="copilot-body">' +
         '<div class="copilot-brief" data-copilot-brief>' + copilotBriefHtml(brief) + '</div>' +
         '<div class="copilot-ask">' +
+          copilotScanHtml(entry) +
           '<div class="copilot-prompts">' +
             '<span class="k">' + esc(T('copilot.suggested')) + '</span>' +
             brief.prompts.map(function (p) {
@@ -576,9 +620,15 @@
     var form = card.querySelector('[data-copilot-form]');
     var input = card.querySelector('[data-copilot-input]');
     var clearBtn = card.querySelector('[data-copilot-clear]');
+    var scanBox = card.querySelector('[data-copilot-scan]');
+    var fileInput = card.querySelector('[data-copilot-file]');
+    var scanResult = card.querySelector('[data-copilot-scan-result]');
+    var scanErr = card.querySelector('[data-copilot-scan-err]');
     var items = [];
     var max = 6;
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var MAX_BYTES = 8 * 1024 * 1024;
+    var MAX_PIXELS = 1200000;
 
     function citesHtml(cites) {
       return cites.map(function (c) {
@@ -611,9 +661,13 @@
         '</div>';
     }
 
-    function renderThread() {
+    function appendItem(item) {
+      if (threadEl) threadEl.insertAdjacentHTML('beforeend', messageHtml(item));
+    }
+
+    function trimThread() {
       if (!threadEl) return;
-      threadEl.innerHTML = items.map(messageHtml).join('');
+      for (var i = 0; i < 2 && threadEl.firstChild; i++) threadEl.removeChild(threadEl.firstChild);
     }
 
     function ask(text) {
@@ -622,14 +676,104 @@
         if (input) input.focus();
         return;
       }
-      items.push({ q: q, ans: TA.copilot.answer(q, entry.a, entry.plan) });
-      if (items.length > max) items.shift();
-      renderThread();
+      var item = { q: q, ans: TA.copilot.answer(q, entry.a, entry.plan, { chartScan: entry.chartScan }) };
+      items.push(item);
+      if (items.length > max) {
+        items.shift();
+        trimThread();
+      }
+      appendItem(item);
       if (clearBtn) clearBtn.hidden = false;
       if (input) {
         input.value = '';
         input.focus();
       }
+    }
+
+    function setScanError(key) {
+      if (!scanErr) return;
+      scanErr.textContent = key ? T(key) : '';
+      scanErr.hidden = !key;
+      scanErr.classList.remove('reading');
+    }
+
+    function setScanBusy(on) {
+      if (!scanErr) return;
+      scanErr.textContent = on ? T('copilot.scan.reading') : '';
+      scanErr.hidden = !on;
+      scanErr.classList.toggle('reading', !!on);
+    }
+
+    function paintScan() {
+      if (scanResult) scanResult.innerHTML = scanResultHtml(entry.chartScan);
+    }
+
+    function loadSource(file) {
+      if (typeof createImageBitmap === 'function') {
+        return createImageBitmap(file).catch(function () { return loadViaUrl(file); });
+      }
+      return loadViaUrl(file);
+    }
+
+    function loadViaUrl(file) {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
+        img.src = url;
+      });
+    }
+
+    function toImageData(src) {
+      var w = src.width || src.naturalWidth;
+      var h = src.height || src.naturalHeight;
+      var scale = Math.min(1, 900 / w);
+      var tw = Math.max(1, Math.round(w * scale));
+      var th = Math.max(1, Math.round(h * scale));
+      if (tw * th > MAX_PIXELS) {
+        var shrink = Math.sqrt(MAX_PIXELS / (tw * th));
+        tw = Math.max(1, Math.round(tw * shrink));
+        th = Math.max(1, Math.round(th * shrink));
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = tw;
+      canvas.height = th;
+      var g = canvas.getContext('2d', { willReadFrequently: true });
+      g.drawImage(src, 0, 0, tw, th);
+      return g.getImageData(0, 0, tw, th);
+    }
+
+    function handleFile(file) {
+      setScanError(null);
+      if (!file) return;
+      if (!/^image\//.test(file.type || '')) { setScanError('copilot.scan.err.type'); return; }
+      if (file.size > MAX_BYTES) { setScanError('copilot.scan.err.size'); return; }
+      if (!TA.chartread) { setScanError('copilot.scan.err.decode'); return; }
+      setScanBusy(true);
+      var started = Date.now();
+      loadSource(file)
+        .then(function (src) {
+          var frame = toImageData(src);
+          if (src.close) src.close();
+          var scan = TA.chartread.scan(frame);
+          if (!scan.ok) {
+            entry.chartScan = null;
+            paintScan();
+            setScanError(scan.reason === 'too-large' ? 'copilot.scan.err.large' : 'copilot.scan.err.empty');
+            return;
+          }
+          scan.ms = Date.now() - started;
+          entry.chartScan = scan;
+          paintScan();
+          setScanError(null);
+          if (input) input.focus();
+        })
+        .catch(function () {
+          entry.chartScan = null;
+          paintScan();
+          setScanError('copilot.scan.err.decode');
+        });
     }
 
     if (form) {
@@ -639,10 +783,67 @@
       });
     }
 
+    if (fileInput) {
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        handleFile(file);
+      });
+    }
+
+    function hasFiles(e) {
+      var types = e.dataTransfer && e.dataTransfer.types;
+      if (!types) return false;
+      for (var i = 0; i < types.length; i++) if (types[i] === 'Files') return true;
+      return false;
+    }
+
+    card.addEventListener('dragover', function (e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (scanBox) scanBox.classList.add('drag');
+    });
+
+    card.addEventListener('dragleave', function (e) {
+      if (scanBox && !card.contains(e.relatedTarget)) scanBox.classList.remove('drag');
+    });
+
+    card.addEventListener('drop', function (e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (scanBox) scanBox.classList.remove('drag');
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length) handleFile(files[0]);
+    });
+
+    card.addEventListener('paste', function (e) {
+      var data = e.clipboardData;
+      if (!data || !data.items) return;
+      for (var i = 0; i < data.items.length; i++) {
+        var item = data.items[i];
+        if (item.kind === 'file' && /^image\//.test(item.type)) {
+          e.preventDefault();
+          handleFile(item.getAsFile());
+          break;
+        }
+      }
+    });
+
+    U.on(card, 'click', '[data-copilot-scan-ask]', function () {
+      ask(T('copilot.q.image'));
+    });
+
+    U.on(card, 'click', '[data-copilot-scan-clear]', function () {
+      entry.chartScan = null;
+      paintScan();
+      setScanError(null);
+      if (input) input.focus();
+    });
+
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
         items = [];
-        renderThread();
+        if (threadEl) threadEl.innerHTML = '';
         clearBtn.hidden = true;
         if (input) input.focus();
       });

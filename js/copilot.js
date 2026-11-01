@@ -6,23 +6,79 @@
   var U = TA.util;
 
   var PROMPTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
-  var INTENTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'data', 'summary'];
+  var INTENTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'image', 'data', 'summary'];
   var CITES = ['plan', 'snapshot', 'context', 'cases', 'levels', 'scenarios', 'risks', 'sources'];
 
   var RULES = [
-    { id: 'data', re: /\b(data|datos|source|sources|fuente|fuentes|fresh|fresc\w*|updated?|actualiz\w*|live|sample|de muestra|delay\w*|retras\w*|feed|retrieved|proveedor)\b/ },
-    { id: 'volume', re: /\b(volume|volumen|liquidity|liquidez|participation|participacion)\b/ },
-    { id: 'volatility', re: /\b(volatil\w*|atr|range|rango|move|movimiento|amplitud)\b/ },
-    { id: 'exits', re: /\b(stop[ -]?loss(?:es)?|take[ -]?profits?|profit targets?|targets?|exits?|salidas?|objetivos?|metas?|ganancias?|beneficios?|tp|sl)\b/ },
-    { id: 'risk', re: /\b(risks?|riesgos?|invalidat\w*|invalid\w*|stop|downside|wrong|perder|perdida|protege?|proteccion)\b/ },
-    { id: 'scenario', re: /\b(scenarios?|simulation|simulate|outcomes?|escenarios?|simulacion|simular|resultados|breakout|break|ruptura|rompe|if)\b/ },
-    { id: 'levels', re: /\b(levels?|niveles?|support|soporte|resistance|resistencia)\b/ },
-    { id: 'trend', re: /\b(trend|tendencia|direction|direccion|bull\w*|bear\w*|alcista|bajista|momentum|impulso)\b/ },
-    { id: 'setup', re: /\b(setup|situacion|plan|trade|entry|entrada|enter|buy|comprar|sell|vender|long|corto|largo|short|action|accion)\b/ },
-    { id: 'evidence', re: /\b(evidence|evidencia|why|por que|reason|razon|case|caso)\b/ },
-    { id: 'chart', re: /\b(chart|graph|grafico|grafica)\b/ },
-    { id: 'summary', re: /\b(summary|resumen|brief|overview|quick|recap|breve|general)\b/ }
+    {
+      id: 'data',
+      words: ['data', 'datos', 'source', 'sources', 'fuente', 'fuentes', 'fresh', 'freshness', 'fresco', 'frescos', 'fresca', 'frescas', 'updated', 'update', 'actualizado', 'actualizada', 'live', 'sample', 'sampled', 'synthetic', 'sintetico', 'delayed', 'delay', 'retraso', 'retrasado', 'feed', 'retrieved', 'provider', 'proveedor', 'stale', 'realtime', 'antiguo', 'antiguedad'],
+      phrases: ['how fresh', 'data source', 'que tan frescos', 'de donde salen']
+    },
+    {
+      id: 'volume',
+      words: ['volume', 'volumen', 'liquidity', 'liquidez', 'participation', 'participacion', 'relvol'],
+      phrases: ['relative volume']
+    },
+    {
+      id: 'volatility',
+      words: ['volatility', 'volatilidad', 'volatile', 'volatil', 'atr', 'range', 'rango', 'amplitud', 'swing', 'vix'],
+      phrases: ['how much does it move']
+    },
+    {
+      id: 'exits',
+      words: ['stop', 'stops', 'loss', 'losses', 'take', 'profit', 'profits', 'objetivo', 'objetivos', 'meta', 'metas', 'target', 'targets', 'exit', 'exits', 'salida', 'salidas', 'ganancia', 'ganancias', 'beneficio', 'beneficios', 'trailing', 'rr'],
+      phrases: ['stop loss', 'take profit', 'profit target', 'reward to risk', 'risk reward', 'perdida maxima']
+    },
+    {
+      id: 'risk',
+      words: ['risk', 'risks', 'riesgo', 'riesgos', 'invalidate', 'invalidates', 'invalidated', 'invalidation', 'invalidaria', 'invalidar', 'downside', 'wrong', 'perder', 'perdida', 'protection', 'proteccion', 'danger', 'peligro', 'unprotected'],
+      phrases: ['what could go wrong', 'how much can i lose']
+    },
+    {
+      id: 'scenario',
+      words: ['scenario', 'scenarios', 'escenario', 'escenarios', 'simulation', 'simulate', 'simulacion', 'simular', 'outcome', 'outcomes', 'resultado', 'resultados', 'breakout', 'break', 'breaks', 'breaking', 'ruptura', 'rompe', 'romper', 'path', 'paths', 'camino', 'probability', 'probabilidad'],
+      phrases: ['what if', 'what happens if', 'if price', 'if it', 'que pasa si', 'si rompe', 'break out', 'breaks out']
+    },
+    {
+      id: 'levels',
+      words: ['level', 'levels', 'nivel', 'niveles', 'support', 'soporte', 'supports', 'resistance', 'resistencia', 'zone', 'zona', 'floor', 'ceiling'],
+      phrases: ['key levels', 'niveles clave']
+    },
+    {
+      id: 'trend',
+      words: ['trend', 'trends', 'tendencia', 'tendencias', 'direction', 'direccion', 'bullish', 'alcista', 'bearish', 'bajista', 'momentum', 'impulso', 'sma', 'ema', 'average', 'averages', 'media', 'moving', 'slope', 'uptrend', 'downtrend'],
+      phrases: ['higher highs', 'lower lows', 'moving average']
+    },
+    {
+      id: 'setup',
+      words: ['setup', 'situacion', 'plan', 'trade', 'entry', 'entrada', 'enter', 'buy', 'comprar', 'sell', 'vender', 'long', 'corto', 'largo', 'short', 'action', 'accion', 'position', 'posicion'],
+      phrases: ['should i', 'what now', 'what do i do', 'set up']
+    },
+    {
+      id: 'evidence',
+      words: ['evidence', 'evidencia', 'why', 'reason', 'reasons', 'razon', 'razones', 'case', 'cases', 'caso', 'casos', 'justify', 'rationale', 'justificacion', 'explanation', 'explicacion'],
+      phrases: ['por que']
+    },
+    {
+      id: 'chart',
+      words: ['chart', 'charts', 'graph', 'graphs', 'grafico', 'grafica', 'graficos', 'plot', 'candle', 'candles', 'vela', 'velas', 'series', 'serie'],
+      phrases: ['what does the chart']
+    },
+    {
+      id: 'image',
+      words: ['screenshot', 'screenshots', 'image', 'images', 'photo', 'photos', 'picture', 'pictures', 'upload', 'uploaded', 'uploads', 'attach', 'attached', 'attachment', 'captura', 'imagen', 'imagenes', 'foto', 'fotos', 'scan', 'scanned', 'escanear'],
+      phrases: ['sent you', 'i sent', 'this screenshot', 'this image', 'my screenshot', 'my chart', 'te envie', 'te mando', 'read this chart']
+    },
+    {
+      id: 'summary',
+      words: ['summary', 'resumen', 'brief', 'overview', 'quick', 'recap', 'tldr', 'breve', 'general', 'summarize', 'resumir', 'panorama'],
+      phrases: ['big picture', 'bottom line']
+    }
   ];
+
+  var DETECT_CACHE = Object.create(null);
+  var DETECT_CACHE_SIZE = 0;
 
   function T(key, params) { return TA.i18n.t(key, params); }
   function lang() { return TA.i18n.get(); }
@@ -40,12 +96,114 @@
     return s;
   }
 
+  function lemma(tok, word) {
+    if (tok === word) return true;
+    if (tok.length < 5) return false;
+    var bases = [tok];
+    if (/ies$/.test(tok)) bases.push(tok.slice(0, -3) + 'y');
+    if (/es$/.test(tok)) bases.push(tok.slice(0, -2));
+    if (/s$/.test(tok)) bases.push(tok.slice(0, -1));
+    if (/ed$/.test(tok)) bases.push(tok.slice(0, -2), tok.slice(0, -1));
+    if (/ing$/.test(tok)) bases.push(tok.slice(0, -3), tok.slice(0, -3) + 'e');
+    if (/ions$/.test(tok)) bases.push(tok.slice(0, -4), tok.slice(0, -4) + 'e');
+    else if (/ion$/.test(tok)) bases.push(tok.slice(0, -3), tok.slice(0, -3) + 'e');
+    for (var i = 0; i < bases.length; i++) if (bases[i] === word) return true;
+    return false;
+  }
+
+  function editDistance(a, b) {
+    var prev = [];
+    var i, j;
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      var cur = [i];
+      for (j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(
+          prev[j] + 1,
+          cur[j - 1] + 1,
+          prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1)
+        );
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
+  function fuzzy(tok, word) {
+    if (tok.length < 6 || word.length < 6) return false;
+    if (Math.abs(tok.length - word.length) > 1) return false;
+    return editDistance(tok, word) === 1;
+  }
+
+  function scoreRule(rule, tokens, padded) {
+    var score = 0;
+    for (var i = 0; i < tokens.length; i++) {
+      var tok = tokens[i];
+      var hit = 0;
+      for (var j = 0; j < rule.words.length; j++) {
+        var word = rule.words[j];
+        if (lemma(tok, word)) { hit = 1; break; }
+        if (fuzzy(tok, word)) { hit = 1; break; }
+      }
+      score += hit;
+    }
+    for (var k = 0; k < rule.phrases.length; k++) {
+      if (padded.indexOf(' ' + rule.phrases[k] + ' ') >= 0) score += 2;
+    }
+    return score;
+  }
+
   function detect(q) {
     var s = normalize(q);
+    var hit = DETECT_CACHE[s];
+    if (hit) return hit;
+    var tokens = s.split(/[^a-z0-9]+/).filter(Boolean);
+    var padded = ' ' + tokens.join(' ') + ' ';
+    var best = 'fallback';
+    var bestScore = 0;
     for (var i = 0; i < RULES.length; i++) {
-      if (RULES[i].re.test(s)) return RULES[i].id;
+      var score = scoreRule(RULES[i], tokens, padded);
+      if (score > bestScore) {
+        bestScore = score;
+        best = RULES[i].id;
+      }
     }
-    return 'fallback';
+    var out = bestScore >= 1 ? best : 'fallback';
+    if (DETECT_CACHE_SIZE > 80) { DETECT_CACHE = Object.create(null); DETECT_CACHE_SIZE = 0; }
+    DETECT_CACHE[s] = out;
+    DETECT_CACHE_SIZE++;
+    return out;
+  }
+
+  var BRIEF_CACHE = typeof WeakMap === 'function' ? new WeakMap() : null;
+  var ANSWER_CACHE = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+  function nested(root, a, plan, key, build) {
+    if (!root) return build();
+    var perA = root.get(a);
+    if (!perA) { perA = new WeakMap(); root.set(a, perA); }
+    var bucket = perA.get(plan);
+    if (!bucket) { bucket = Object.create(null); perA.set(plan, bucket); }
+    if (Object.prototype.hasOwnProperty.call(bucket, key)) return bucket[key];
+    var value = build();
+    bucket[key] = value;
+    return value;
+  }
+
+  function scanDir(scan) { return T('copilot.scan.dir.' + (scan && scan.direction ? scan.direction : 'flat')); }
+  function scanType(scan) { return T('copilot.scan.type.' + (scan && scan.chartType ? scan.chartType : 'line')); }
+  function scanConf(scan) { return Math.round(clampPct((scan && scan.confidence || 0) * 100)); }
+  function clampPct(v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
+
+  function scanSignature(scan) {
+    if (!scan || !scan.ok) return '';
+    var lv = scan.levels || {};
+    return [
+      scan.chartType, scan.direction, scan.positionPct, scan.spanPct,
+      scan.volatilityPct, scan.confidence,
+      lv.supportPct, lv.resistancePct, lv.supportTouches, lv.resistanceTouches,
+      scan.trend && scan.trend.r2
+    ].join('|');
   }
 
   function headlineFor(a, plan) {
@@ -119,8 +277,10 @@
 
   function brief(a, plan) {
     a = a || {};
+    plan = plan || {};
+    return nested(BRIEF_CACHE, a, plan, 'brief|' + lang(), function () {
     var f = a.facts || {};
-    var p = plan || {};
+    var p = plan;
     var head = headlineFor(a, p);
     var reads = [
       { id: 'trend', labelKey: 'copilot.read.trend', value: T(a.trend ? a.trend.key : 'trend.mixed') },
@@ -167,6 +327,7 @@
       points: points.slice(0, 3),
       prompts: prompts()
     };
+    });
   }
 
   /* ---------------- answers ---------------- */
@@ -402,7 +563,37 @@
     return { paragraphs: paragraphs, cites: ['cases'], followups: ['trend', 'risk'] };
   }
 
-  function chartAnswer(a, plan) {
+  function imageAnswer(a, plan, opts) {
+    var scan = opts && opts.chartScan;
+    if (!scan || !scan.ok) {
+      return { paragraphs: [T('copilot.a.image.none')], cites: [], followups: ['chart', 'levels'] };
+    }
+    var lv = scan.levels || {};
+    var trend = scan.trend || {};
+    var paragraphs = [
+      T('copilot.a.image.shape', {
+        type: scanType(scan),
+        dir: scanDir(scan),
+        pos: Math.round(clampPct(scan.positionPct)),
+        conf: scanConf(scan)
+      }),
+      T('copilot.a.image.levels', {
+        r: Math.round(clampPct(lv.resistancePct)),
+        rt: lv.resistanceTouches || 0,
+        s: Math.round(clampPct(lv.supportPct)),
+        st: lv.supportTouches || 0
+      }),
+      T('copilot.a.image.vol', {
+        vol: U.fmtPct(scan.volatilityPct || 0, { sign: false }),
+        r2: U.isNum(trend.r2) ? trend.r2.toFixed(2) : '—'
+      })
+    ];
+    if (scan.confidence < 0.45) paragraphs.push(T('copilot.a.image.low'));
+    paragraphs.push(T('copilot.a.image.caveat'));
+    return { paragraphs: paragraphs, cites: [], followups: ['chart', 'risk'] };
+  }
+
+  function chartAnswer(a, plan, opts) {
     var f = a.facts || {};
     var m = a.meta || {};
     var chart = a.chart || {};
@@ -448,6 +639,14 @@
           vs50: relation(lastClose, sma50), sma50: U.isNum(sma50) ? fmtP(sma50) : '—'
         }));
       }
+    }
+    var scan = opts && opts.chartScan;
+    if (scan && scan.ok) {
+      paragraphs.push(T('copilot.a.chart.scan', {
+        dir: scanDir(scan),
+        pos: Math.round(clampPct(scan.positionPct)),
+        conf: scanConf(scan)
+      }));
     }
     if (a.chart && a.chart.sample) paragraphs.push(T('copilot.a.chart.sample'));
     return { paragraphs: paragraphs, cites: ['snapshot', 'levels'], followups: ['levels', 'trend'] };
@@ -505,22 +704,29 @@
     scenario: scenarioAnswer,
     evidence: evidenceAnswer,
     chart: chartAnswer,
+    image: imageAnswer,
     data: dataAnswer,
     summary: summaryAnswer,
     fallback: fallbackAnswer
   };
 
   function answer(q, a, plan, opts) {
+    a = a || {};
+    plan = plan || {};
+    opts = opts || {};
     var id = detect(q);
-    var res = RESOLVERS[id](a || {}, plan || {}, opts || {});
-    return {
-      id: id,
-      titleKey: 'copilot.intent.' + id,
-      title: T('copilot.intent.' + id),
-      paragraphs: res.paragraphs.filter(function (p) { return !!p; }),
-      cites: res.cites || [],
-      followups: res.followups || []
-    };
+    var key = id + '|' + lang() + '|' + scanSignature(opts.chartScan);
+    return nested(ANSWER_CACHE, a, plan, key, function () {
+      var res = RESOLVERS[id](a, plan, opts);
+      return {
+        id: id,
+        titleKey: 'copilot.intent.' + id,
+        title: T('copilot.intent.' + id),
+        paragraphs: res.paragraphs.filter(function (p) { return !!p; }),
+        cites: res.cites || [],
+        followups: res.followups || []
+      };
+    });
   }
 
   TA.copilot = {

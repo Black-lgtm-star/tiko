@@ -75,22 +75,26 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/tradeplan.test.js tests/copilot.test.js tests/market-notifications.test.js tests/quote-proxy.test.js
+node --test tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js
 # or: npm test (when Node is on PATH)
 ```
 
 The action-plan suite covers the long/short state machine, directional copy, sample practice mode,
 determinism, stop buffers, exit-level suggestions, fixed-fractional sizing and account caps,
 editable stop/take-profit overrides, validation errors, warnings, and EN/ES key coverage (25 tests).
-The copilot suite covers brief headlines for every plan state, EN/ES intent routing, grounded
-answers for each topic (including stop-loss/take-profit suggestions for an active plan, a
-directional lean and a neutral read), sample warnings, fallback scope, citations and follow-ups,
-determinism, and EN/ES key coverage (23 tests). The market-alert suite covers weekday, weekend,
+The copilot suite covers brief headlines for every plan state, EN/ES intent routing with synonym
+and typo tolerance, grounded answers for each topic (including stop-loss/take-profit suggestions for
+an active plan, a directional lean and a neutral read), chart-image answers with and without a
+scan, answer caching, sample warnings, fallback scope, citations and follow-ups, determinism, and
+EN/ES key coverage (26 tests). The chart-reader suite covers plot detection, candle and line
+direction, support/resistance touches, flat and choppy trend reads, rejection of non-chart
+screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The
+market-alert suite covers weekday, weekend,
 holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries, pre-close
 reminders, duplicate suppression, disabled groups, notification permission gating and EN/ES alert
 copy (12 tests). The quote-proxy suite covers response normalization, intraday session slicing,
-batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). All four
-suites total 65 tests.
+batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). All five
+suites total 76 tests.
 
 ## What is in the MVP
 
@@ -133,7 +137,12 @@ suites total 65 tests.
 - **Ask-the-chart copilot** — an on-device assistant that turns the page's own facts into faster
   answers. A live brief summarizes the state, trend, location, momentum and volatility; suggested
   questions cover the setup, stop loss and take profit, key levels, invalidation, trend, volatility,
-  volume, scenarios, evidence, the chart and data freshness. The stop/take-profit answer repeats the
+  volume, scenarios, evidence, the chart, and data freshness. You can also drop, paste or choose a
+  chart screenshot from a trading app: it is decoded and measured in the page, never uploaded. The
+  scanner reports the plot shape — direction, net move, position in range, volatility, trend fit,
+  support/resistance touches and candle balance — and the copilot grounds image and chart answers in
+  that read. It reads shape only, not ticker, axis values or timeframe, and says so. The
+  stop/take-profit answer repeats the
   active plan levels, or derives structure-based suggestions from price, ATR and nearby levels when
   there is no confirmed setup — one side when the read leans, both when it is neutral. Answers are
   composed locally from the same facts and fixed rules, cite the sections they come from (select a
@@ -220,6 +229,7 @@ js/data.js          providers, caching, fallback, stock quote proxy, overview/qu
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
 js/copilot.js       on-device brief and question answering over facts, plan and levels
+js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
 js/views/*.js       onboarding, dashboard, analysis, settings
@@ -236,7 +246,11 @@ levels for a hypothetical position — one side when the lean or the caller pick
 read is neutral — and it never marks those suggestions as a confirmed setup. The copilot is
 deterministic too: `copilot.brief` and `copilot.answer` compose copy from those same facts, the
 current plan and local intent rules, so the brief stays in sync with live plan updates and every
-answer traces back to the page. No LLM is involved and nothing is sent to a server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
+answer traces back to the page. Screenshot reading is local too: the browser decodes the image,
+downscales it on a canvas and `chartread.scan` classifies background, ink and candle colors to
+measure the plotted series. The file never leaves the device, and the scanner reports shape only, so
+the copilot labels axis values and timeframe as unread. No LLM is involved and nothing is sent to a
+server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
 never sends an order anywhere.
 
 Storage keys: `gt.settings.v1` also holds `accountSize` and `riskPct` for the sizing calculator.
@@ -288,6 +302,9 @@ still being translated.
   visible focus styles, reduced-motion support.
 - The copilot form is keyboard-first: labeled input, live `role="log"` thread, suggested-question
   buttons and citations that move focus to the cited section instead of changing the route.
+- Chart screenshots can be chosen with the labeled file input, dropped on the copilot card, or
+  pasted while the form has focus; scan results are announced as text and the clear button resets
+  them.
 - Responsive from narrow mobile to desktop; the dashboard grid collapses to single-column cards.
 - Watchlist rows use sibling buttons (open + remove) instead of nested interactive controls.
 - Feedback, notes and reset are local-first; reset clears all app data and returns to onboarding.

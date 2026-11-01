@@ -121,10 +121,18 @@ function plan(over, lang) {
   return TA.tradeplan.build(ana(over), { lang: lang || 'en' });
 }
 
-function answer(question, over, lang) {
+function answer(question, over, lang, opts) {
   TA.i18n.set(lang || 'en');
-  return TA.copilot.answer(question, ana(over), plan(over, lang));
+  return TA.copilot.answer(question, ana(over), plan(over, lang), opts);
 }
+
+const SCAN = {
+  ok: true, chartType: 'candles', direction: 'up',
+  positionPct: 82, spanPct: 40, volatilityPct: 3.2, recentPct: 4,
+  confidence: 0.72, quality: 'good',
+  levels: { supportPct: 12, resistancePct: 88, supportTouches: 3, resistanceTouches: 2 },
+  trend: { r2: 0.74 }
+};
 
 function cites(ans) {
   return Array.from(ans.cites);
@@ -181,6 +189,65 @@ test('English questions route to the right intent', () => {
   });
   assert.equal(TA.copilot.detect('What happens if price breaks resistance?'), 'scenario');
   assert.equal(TA.copilot.detect('Should I buy or sell?'), 'setup');
+});
+
+test('synonyms, typos and screenshot questions still route correctly', () => {
+  TA.i18n.set('en');
+  const cases = [
+    ['How volatilty is it?', 'volatility'],
+    ['is liquidity thin?', 'volume'],
+    ['how fresh are these quotes?', 'data'],
+    ['what happens if it breaks out?', 'scenario'],
+    ['read my screenshot', 'image'],
+    ['What did you see in this image?', 'image'],
+    ['where is my invalidation?', 'risk'],
+    ['can you show the moving average?', 'trend'],
+    ['what is my exit plan', 'exits'],
+    ['show me the big picture', 'summary']
+  ];
+  cases.forEach(([q, id]) => assert.equal(TA.copilot.detect(q), id, q));
+  assert.equal(TA.copilot.detect('What does this chart show?'), 'chart');
+  assert.equal(TA.copilot.detect('hello there'), 'fallback');
+});
+
+test('image answers are honest without a scan and grounded with one', () => {
+  const none = answer('What did you read in my chart?');
+  assert.equal(none.id, 'image');
+  assert.ok(none.paragraphs.join(' ').indexOf('Attach a chart screenshot') >= 0);
+  assert.deepEqual(cites(none), []);
+
+  const ans = answer('What did you read in my chart?', {}, 'en', { chartScan: SCAN });
+  assert.equal(ans.id, 'image');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('candles') >= 0, text);
+  assert.ok(text.indexOf('up') >= 0, text);
+  assert.ok(text.indexOf('82%') >= 0, text);
+  assert.ok(text.indexOf('72%') >= 0, text);
+  assert.ok(text.indexOf('does not include the ticker') >= 0, text);
+  assert.deepEqual(cites(ans), []);
+
+  const chart = answer(QUESTIONS.chart, {}, 'en', { chartScan: SCAN });
+  assert.ok(chart.paragraphs.join(' ').indexOf('uploaded chart also reads up') >= 0);
+});
+
+test('answers and briefs are cached per analysis, plan and language', () => {
+  TA.i18n.set('en');
+  const a = ana();
+  const p = plan();
+  const q = QUESTIONS.levels;
+  const first = TA.copilot.answer(q, a, p);
+  const second = TA.copilot.answer(q, a, p);
+  assert.equal(first, second);
+  assert.equal(TA.copilot.brief(a, p), TA.copilot.brief(a, p));
+
+  TA.i18n.set('es');
+  const spanish = TA.copilot.answer(q, a, p);
+  assert.notEqual(spanish, first);
+  assert.equal(spanish.title, 'Niveles clave');
+
+  const cached = TA.copilot.answer(q, a, p);
+  assert.equal(cached, spanish);
+  TA.i18n.set('en');
 });
 
 test('Spanish questions route to the same intents', () => {
