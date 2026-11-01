@@ -41,16 +41,14 @@ route in `api/stocks.js`. To publish it:
 
 `index.html` declares `https://tiko.app/` as its canonical and Open Graph URL.
 
-## Accounts and local data
+## Local data
 
-TIKO asks you to sign in or create an account before it opens. Accounts exist only on this device:
-passwords are stretched with PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) and only the
-hash is stored; nothing is sent to a server. Sessions last 30 days and can be ended from the
-top-right profile menu. There is no password reset, so keep the password safe.
-
+TIKO opens straight into onboarding or the dashboard; there is no sign-in screen or account gate.
 Settings, watchlists, notes, feedback and plan levels stay in this browser's local storage. They are
-not encrypted at rest and are shared by accounts in the same browser profile. The optional Alpha
-Vantage key is kept in tab storage and cleared on sign-out.
+not encrypted at rest. The optional Alpha Vantage key is kept in tab storage and cleared when the tab
+ends. If a browser still holds data from the earlier device-account build, the app folds the
+signed-in profile back into the shared local profile and deletes the stored password hashes and
+session on first load.
 
 ## No ads, no third-party scripts
 
@@ -74,7 +72,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/tradeplan.test.js tests/copilot.test.js tests/auth.test.js tests/market-notifications.test.js
+node --test tests/tradeplan.test.js tests/copilot.test.js tests/market-notifications.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -83,23 +81,19 @@ determinism, stop buffers, fixed-fractional sizing and account caps, editable st
 overrides, validation errors, warnings, and EN/ES key coverage (21 tests). The copilot suite covers
 brief headlines for every plan state, EN/ES intent routing, grounded answers for each topic, sample
 warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key coverage (19 tests).
-The auth suite covers email normalization, salted hashing (no plaintext stored), validation errors,
-duplicate accounts, correct and incorrect sign-in, throttling after repeated failures, session
-resume and expiry, and per-account storage namespaces (8 tests). The market-alert suite covers
-weekday, weekend, holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries,
-pre-close reminders, duplicate suppression, disabled groups, notification permission gating and
-EN/ES alert copy and the signed-in requirement (13 tests). All four suites total 61 tests.
+The market-alert suite covers weekday, weekend, holiday and early-close sessions, the
+Sunday-to-Friday forex week, DST boundaries, pre-close reminders, duplicate suppression, disabled
+groups, notification permission gating and EN/ES alert copy (12 tests). All three suites total 52
+tests.
 
 ## What is in the MVP
 
-- **On-device accounts** — sign in or create an account stored only in this browser (PBKDF2-SHA256
-  hash, 30-day session). The top-right profile menu shows the signed-in name, email, account date,
-  trading profile, a settings link and sign-out. This is a local access gate, not server-side
-  authorization.
+- **No sign-in gate** — the app opens directly into onboarding or the dashboard; there are no
+  accounts, passwords or sessions.
 - **Local-first storage** — data remains in this browser profile.
 - **Date and time** — a live clock with weekday, date, time and time zone appears in the top bar on
-  every screen and on the sign-in screen before access. The alerts panel shows the exact Eastern
-  Time date and time of the next U.S. stock or forex session event alongside the countdown.
+  every screen. The alerts panel shows the exact Eastern Time date and time of the next U.S. stock or
+  forex session event alongside the countdown.
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
   Answers are editable later in Settings and drive the default lens and copy density.
 - **Dashboard** — a hero read of the current session (watchlist count, six lenses, zero orders placed),
@@ -199,7 +193,6 @@ Classic scripts sharing a `window.TA` namespace, loaded in dependency order by `
 index.html          script order, app roots
 styles.css          design tokens, layout, components, responsive rules
 js/util.js          escaping, formatting, DOM helpers, seeded RNG, storage helpers
-js/auth.js          on-device accounts: PBKDF2 hashing, sessions, throttling, sign-in screen
 js/i18n.js          EN/ES dictionaries, core FR/PT-BR translations, and templating ({{var}})
 js/store.js         settings, watchlist, recents, notes, feedback (localStorage)
 js/market-notifications.js  exchange calendars, session state, local open/close alerts
@@ -235,9 +228,10 @@ correctly from recents or the watchlist.
 ### Storage keys
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
-`gt.planlevels.v1`, plus `gt.auth.users.v1`, `gt.auth.session.v1`, `gt.auth.throttle.v1` and
-`gt.auth.lang.v1` for the device account. `gt.market-alerts.last-event.v1` records the last
-delivered session alert so a reload does not repeat it; alert preferences live in `gt.settings.v1`.
+`gt.planlevels.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
+(`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
+shared profile and removed on first load.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, and submitted Bing searches are sent to Bing.

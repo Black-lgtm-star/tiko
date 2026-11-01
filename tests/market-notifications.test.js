@@ -18,8 +18,7 @@ function makeStorage() {
   };
 }
 
-function makeContext(overrides, options) {
-  const opts = options || {};
+function makeContext(overrides) {
   const storage = makeStorage();
   const settings = Object.assign({
     marketAlertsEnabled: true,
@@ -45,7 +44,6 @@ function makeContext(overrides, options) {
       TA: {
         i18n: { t: (key) => key },
         ui: { toast: (message) => toasts.push(message) },
-        auth: { session: () => (opts.signedIn === false ? null : { uid: 'test-user' }) },
         store: {
           settings: () => Object.assign({}, settings),
           updateSettings: (patch) => Object.assign(settings, patch)
@@ -162,12 +160,6 @@ test('disabled alerts and disabled groups stay silent', () => {
   stocksOff.TA.marketNotifications.checkAt(stocksOff.date('2026-11-01T22:01:00Z'));
   assert.equal(stocksOff.toasts.length, 1);
   assert.ok(stocksOff.toasts[0].includes('alerts.forex.open.title'));
-});
-
-test('alerts stay silent for signed-out visitors', () => {
-  const signedOut = makeContext({}, { signedIn: false });
-  signedOut.TA.marketNotifications.checkAt(signedOut.date('2026-10-28T13:31:00Z'));
-  assert.equal(signedOut.toasts.length, 0);
 });
 
 test('system notifications require granted permission', () => {

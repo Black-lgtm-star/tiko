@@ -18,20 +18,9 @@
         '<path d="M12 12.4v9.2" stroke="#29e0ff" stroke-width="1.5"/></svg></span>';
   }
 
-  function initialsFor(user) {
-    var name = String((user && user.name) || '').trim();
-    var source = name || String((user && user.email) || '?').split('@')[0];
-    var parts = source.split(/[\s._-]+/).filter(Boolean);
-    var letters = parts.slice(0, 2).map(function (p) { return p.charAt(0); }).join('');
-    return (letters || '?').toUpperCase();
-  }
-
   function profileTriggerHtml() {
-    var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
     return '<summary class="profile-trigger" aria-label="' + U.attr(T('profile.menu')) + '">' +
-        '<span class="profile-avatar" aria-hidden="true">' +
-          (user ? U.esc(initialsFor(user)) : ui.icon('user', 17)) +
-        '</span>' +
+        '<span class="profile-avatar" aria-hidden="true">' + ui.icon('user', 17) + '</span>' +
         '<span class="profile-trigger-label">' + U.esc(T('profile.menu')) + '</span>' +
       '</summary>';
   }
@@ -162,51 +151,21 @@
 
   function profilePopoverHtml() {
     var settings = TA.store.settings();
-    var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
     var markets = (settings.markets || []).map(function (market) { return T('ob.market.' + market); }).join(', ') || T('common.none');
     var amount = Number(settings.accountSize);
     var accountSize = isFinite(amount)
       ? new Intl.NumberFormat(TA.i18n.get(), { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
       : '—';
-    var memberSince = '';
-    if (user && user.createdAt) {
-      try {
-        memberSince = new Intl.DateTimeFormat(TA.i18n.get(), { year: 'numeric', month: 'short', day: 'numeric' })
-          .format(new Date(user.createdAt));
-      } catch (e) { memberSince = ''; }
-    }
-    var head = user
-      ? '<div class="profile-popover-head">' +
-          '<div class="profile-identity">' +
-            '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + U.esc(initialsFor(user)) + '</span>' +
-            '<div class="profile-identity-copy">' +
-              '<span class="profile-head-kicker">' + U.esc(T('set.account.signed_in')) + '</span>' +
-              '<b>' + U.esc(user.name || T('profile.local')) + '</b>' +
-              '<small>' + U.esc(user.email) + '</small>' +
-            '</div>' +
+    var head = '<div class="profile-popover-head">' +
+        '<div class="profile-identity">' +
+          '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + ui.icon('user', 18) + '</span>' +
+          '<div class="profile-identity-copy">' +
+            '<span class="profile-head-kicker">' + U.esc(T('profile.menu')) + '</span>' +
+            '<b>' + U.esc(T('profile.local')) + '</b>' +
           '</div>' +
-          '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
-        '</div>'
-      : '<div class="profile-popover-head">' +
-          '<div class="profile-identity">' +
-            '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + ui.icon('user', 18) + '</span>' +
-            '<div class="profile-identity-copy">' +
-              '<span class="profile-head-kicker">' + U.esc(T('profile.menu')) + '</span>' +
-              '<b>' + U.esc(T('profile.local')) + '</b>' +
-              '<small>' + U.esc(T('profile.noLogin')) + '</small>' +
-            '</div>' +
-          '</div>' +
-          '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
-        '</div>';
-    var actions = user
-      ? '<div class="profile-actions">' +
-          '<a class="btn btn-sm" href="#/settings">' + ui.icon('settings', 14) + ' ' + U.esc(T('profile.settings')) + '</a>' +
-          '<button class="btn btn-sm" type="button" data-profile-signout>' + U.esc(T('set.signout')) + '</button>' +
-        '</div>'
-      : '<div class="profile-actions">' +
-          '<button class="btn btn-sm btn-primary" type="button" data-profile-auth="signin">' + U.esc(T('auth.signin')) + '</button>' +
-          '<button class="btn btn-sm" type="button" data-profile-auth="signup">' + U.esc(T('auth.create')) + '</button>' +
-        '</div>';
+        '</div>' +
+        '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
+      '</div>';
     return head +
       '<dl class="profile-details">' +
         '<div><dt>' + U.esc(T('profile.experience')) + '</dt><dd>' + U.esc(T('ob.exp.' + settings.experience)) + '</dd></div>' +
@@ -214,18 +173,11 @@
         '<div><dt>' + U.esc(T('profile.horizon')) + '</dt><dd>' + U.esc(T('ob.horizon.' + settings.horizon)) + '</dd></div>' +
         '<div><dt>' + U.esc(T('profile.accountSize')) + '</dt><dd>' + U.esc(accountSize) + '</dd></div>' +
         '<div><dt>' + U.esc(T('profile.riskTrade')) + '</dt><dd>' + U.esc(U.fmtPct(Number(settings.riskPct) || 0, { sign: false })) + '</dd></div>' +
-        (memberSince ? '<div><dt>' + U.esc(T('profile.memberSince')) + '</dt><dd>' + U.esc(memberSince) + '</dd></div>' : '') +
       '</dl>' +
-      '<p class="profile-local-note">' + U.esc(T(user ? 'profile.accountNote' : 'profile.localNote')) + '</p>' +
-      actions;
-  }
-
-  function openAccount(mode) {
-    if (TA.views.settings && typeof TA.views.settings.openAccount === 'function') {
-      TA.views.settings.openAccount(mode || 'signin');
-      return;
-    }
-    location.hash = '#/settings';
+      '<p class="profile-local-note">' + U.esc(T('profile.localNote')) + '</p>' +
+      '<div class="profile-actions">' +
+        '<a class="btn btn-sm" href="#/settings">' + ui.icon('settings', 14) + ' ' + U.esc(T('profile.settings')) + '</a>' +
+      '</div>';
   }
 
   function bindProfileMenu() {
@@ -233,28 +185,9 @@
     var popover = menu && menu.querySelector('[data-profile-popover]');
     if (!menu || !popover) return;
     menu.addEventListener('toggle', function () {
-      if (menu.open) {
-        popover.innerHTML = profilePopoverHtml();
-        var triggerAvatar = menu.querySelector('.profile-trigger .profile-avatar');
-        var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
-        if (triggerAvatar) triggerAvatar.innerHTML = user ? U.esc(initialsFor(user)) : ui.icon('user', 17);
-      }
+      if (menu.open) popover.innerHTML = profilePopoverHtml();
     });
     menu.addEventListener('click', function (e) {
-      if (e.target.closest('[data-profile-signout]')) {
-        menu.open = false;
-        TA.auth.signOut();
-        TA.store.clearSecrets();
-        ui.toast(T('profile.signedOut'));
-        TA.app.refresh({ keepScroll: true });
-        return;
-      }
-      var authButton = e.target.closest('[data-profile-auth]');
-      if (authButton) {
-        menu.open = false;
-        openAccount(authButton.getAttribute('data-profile-auth'));
-        return;
-      }
       if (e.target.closest('.profile-actions a')) menu.open = false;
     });
   }
@@ -400,13 +333,6 @@
     return T('app.name') + ' — ' + T('app.promise');
   }
 
-  function showAuth() {
-    if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null; }
-    shellMounted = false;
-    appRoot.innerHTML = '';
-    TA.auth.mount(appRoot);
-  }
-
   function showOnboarding() {
     if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null; }
     shellMounted = false;
@@ -417,7 +343,6 @@
   }
 
   function renderRoute(keepScroll) {
-    if (!TA.auth || !TA.auth.session || !TA.auth.session()) { showAuth(); return; }
     if (!TA.store.settings().onboarded) { showOnboarding(); return; }
     if (!shellMounted || !document.getElementById('main')) mountShell();
 

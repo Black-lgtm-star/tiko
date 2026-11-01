@@ -2,7 +2,6 @@
 (function (TA) {
   'use strict';
   var U = TA.util;
-  var legacyPrefix = TA.auth && typeof TA.auth.namespace === 'function' ? TA.auth.namespace() : 'gt.';
   var prefix = 'gt.';
   var KEYS = {
     settings: prefix + 'settings.v1',
@@ -13,6 +12,22 @@
     planLevels: prefix + 'planlevels.v1',
     avKeySession: prefix + 'avkey.session.v1'
   };
+  // The old sign-in build scoped data per account under gt.u.<uid>.*. Fold any
+  // such profile into the shared local profile, then drop the stored accounts
+  // so no credentials linger in the browser.
+  var AUTH_KEYS = ['gt.auth.users.v1', 'gt.auth.session.v1', 'gt.auth.throttle.v1', 'gt.auth.lang.v1'];
+  var legacyPrefixes = [];
+  function addLegacyPrefix(value) {
+    if (value && legacyPrefixes.indexOf(value) < 0) legacyPrefixes.push(value);
+  }
+  var priorSession = U.loadJSON('gt.auth.session.v1', null);
+  if (priorSession && priorSession.uid) addLegacyPrefix('gt.u.' + priorSession.uid + '.');
+  try {
+    for (var keyIndex = 0; keyIndex < localStorage.length; keyIndex++) {
+      var match = /^(gt\.u\.[^.]+\.)/.exec(localStorage.key(keyIndex) || '');
+      if (match) addLegacyPrefix(match[1]);
+    }
+  } catch (e) {}
 
   function mergeUniqueBy(items, incoming, key) {
     var out = Array.isArray(items) ? items.slice() : [];
@@ -25,19 +40,19 @@
     return out;
   }
 
-  // If a user was signed in when this version starts, move their device-only
-  // data to the shared local profile before the sign-in gate is removed.
-  if (legacyPrefix !== prefix) {
-    var migrations = {
-      'settings.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
-      'watchlist.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'symbol'); },
-      'recents.v1': function (current, prior) {
-        return mergeUniqueBy(current, prior, 'symbol').sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 12);
-      },
-      'notes.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
-      'feedback.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'id').slice(-300); },
-      'planlevels.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); }
-    };
+  // Move device-account data to the shared local profile before the sign-in
+  // gate is removed.
+  var migrations = {
+    'settings.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
+    'watchlist.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'symbol'); },
+    'recents.v1': function (current, prior) {
+      return mergeUniqueBy(current, prior, 'symbol').sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 12);
+    },
+    'notes.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
+    'feedback.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'id').slice(-300); },
+    'planlevels.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); }
+  };
+  legacyPrefixes.forEach(function (legacyPrefix) {
     Object.keys(migrations).forEach(function (suffix) {
       var oldKey = legacyPrefix + suffix;
       var oldValue = U.loadJSON(oldKey, null);
@@ -56,7 +71,8 @@
         sessionStorage.removeItem(oldSecretKey);
       }
     } catch (e) {}
-  }
+  });
+  AUTH_KEYS.forEach(function (key) { U.remove(key); });
 
   var defaults = {
     onboarded: false,
@@ -153,12 +169,6 @@
     },
     resetDefaults: function () {
       settings = Object.assign({}, defaults);
-      writeSessionSecret(KEYS.avKeySession, '');
-      persistSettings();
-      emit();
-    },
-    clearSecrets: function () {
-      settings.avKey = '';
       writeSessionSecret(KEYS.avKeySession, '');
       persistSettings();
       emit();

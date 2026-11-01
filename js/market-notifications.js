@@ -210,7 +210,6 @@
   }
 
   function checkAt(at) {
-    if (TA.auth && TA.auth.session && !TA.auth.session()) return;
     var settings = TA.store.settings();
     if (!settings.marketAlertsEnabled) return;
     var when = at instanceof Date ? at : new Date();
