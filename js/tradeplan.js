@@ -101,7 +101,9 @@
     var sample = a.meta && a.meta.dataMode === 'sample';
     var live = !!opts.live && a.asset && a.asset.assetClass === 'crypto';
     var lean = a.lean ? a.lean.dir : 'neutral';
-    var side = lean === 'bull' ? 'long' : lean === 'bear' ? 'short' : 'none';
+    var side = opts.side === 'long' || opts.side === 'short'
+      ? opts.side
+      : lean === 'bull' ? 'long' : lean === 'bear' ? 'short' : 'none';
 
     // A live break can define a direction the last full-bar lean did not.
     if (side === 'none' && U.isNum(s1) && price < s1 * 0.999) side = 'short';
@@ -370,6 +372,34 @@
 
     plan.distToTriggerPct = U.isNum(plan.trigger) ? pctDist(price, plan.trigger) : null;
     plan.triggerText = U.isNum(plan.trigger) ? plan.triggerText : '—';
+
+    // A user-selected side always gets a transparent hypothetical scenario,
+    // even when the rule-based setup says there is no confirmed trade.
+    if (opts.side === 'long' || opts.side === 'short') {
+      var scenarioEntry = U.isNum(plan.entry) && plan.state !== 'no_edge' && plan.state !== 'invalidated'
+        ? plan.entry : price;
+      var scenarioStop = U.isNum(plan.stop) && plan.state !== 'no_edge' && plan.state !== 'invalidated'
+        ? plan.stop
+        : side === 'long' ? longStop(scenarioEntry, s1, atr) : shortStop(scenarioEntry, r1, atr);
+      var scenarioTarget = U.isNum(plan.target) && plan.state !== 'no_edge' && plan.state !== 'invalidated'
+        ? plan.target
+        : pickTarget(side, scenarioEntry, scenarioStop, side === 'long' ? r1 : s1);
+      var scenarioRisk = Math.abs(scenarioEntry - scenarioStop);
+      plan.scenario = {
+        entry: scenarioEntry,
+        stop: scenarioStop,
+        target: scenarioTarget,
+        entryText: fmtP(scenarioEntry, lang),
+        stopText: fmtP(scenarioStop, lang),
+        targetText: U.isNum(scenarioTarget) ? fmtP(scenarioTarget, lang) : '—',
+        gainPct: scenarioEntry ? Math.abs(scenarioTarget / scenarioEntry - 1) * 100 : null,
+        lossPct: scenarioEntry ? Math.abs(scenarioStop / scenarioEntry - 1) * 100 : null,
+        rr: scenarioRisk > 0 && U.isNum(scenarioTarget) ? Math.abs(scenarioTarget - scenarioEntry) / scenarioRisk : null,
+        hypothetical: plan.state === 'no_edge' || plan.state === 'invalidated'
+      };
+    } else {
+      plan.scenario = null;
+    }
 
     return plan;
   }

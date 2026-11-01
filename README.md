@@ -28,7 +28,8 @@ falls back to a clearly labeled synthetic sample and tells you why.
 
 ## Deploying at tiko.app
 
-The app is a static site configured for Vercel (`vercel.json`). To publish it:
+The client is a static site configured for Vercel (`vercel.json`), with a serverless stock-directory
+route in `api/stocks.js`. To publish it:
 
 1. Import this repository in Vercel as a static project. No framework, build command or output
    directory is needed — the repository root is served as-is.
@@ -40,6 +41,17 @@ The app is a static site configured for Vercel (`vercel.json`). To publish it:
 
 `index.html` declares `https://tiko.app/` as its canonical and Open Graph URL.
 
+## Accounts and local data
+
+TIKO asks you to sign in or create an account before it opens. Accounts exist only on this device:
+passwords are stretched with PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) and only the
+hash is stored; nothing is sent to a server. Sessions last 30 days and can be ended from the
+top-right profile menu. There is no password reset, so keep the password safe.
+
+Settings, watchlists, notes, feedback and plan levels stay in this browser's local storage. They are
+not encrypted at rest and are shared by accounts in the same browser profile. The optional Alpha
+Vantage key is kept in tab storage and cleared on sign-out.
+
 ## No ads, no third-party scripts
 
 The app ships no ad slots, ad SDKs, trackers or third-party scripts, and the deployment enforces
@@ -47,18 +59,22 @@ that with a Content-Security-Policy (`vercel.json`):
 
 - `script-src 'self'` — only the app's own `js/*.js` files execute; injected ad or tracker scripts are refused.
 - `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
-- `connect-src` is limited to the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`).
+- `connect-src` permits only the same-origin stock directory API and the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`, `api.frankfurter.dev`).
+- Browser storage is local to the device. Watchlists, notes and settings use `localStorage`; the optional Alpha Vantage key uses `sessionStorage` and is cleared when the tab ends. Browser storage is not encrypted at rest.
+- Bing searches open in a new tab; the browser sends the submitted query to Bing directly, and TIKO does not ingest search results.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
+- HSTS, same-origin opener/resource policies and restrictive cross-domain policy headers add transport and origin isolation.
+- Six Vercel WAF rules deny unsafe stock API methods, requests missing its search parameter, oversized queries, secret-file probes and common CMS probes; scanner-like API clients receive a challenge. Vercel's platform firewall also applies its managed DDoS mitigation automatically.
 
 Assets are served from the same origin (fonts and images are local), so nothing is loaded from a
 CDN that could inject content. Keep this policy in place if you change hosting.
 
 ## Tests
 
-Both suites run on Node's built-in test runner (Node 20+) with no dependencies:
+All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/tradeplan.test.js tests/copilot.test.js
+node --test tests/tradeplan.test.js tests/copilot.test.js tests/auth.test.js tests/market-notifications.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -67,13 +83,27 @@ determinism, stop buffers, fixed-fractional sizing and account caps, editable st
 overrides, validation errors, warnings, and EN/ES key coverage (21 tests). The copilot suite covers
 brief headlines for every plan state, EN/ES intent routing, grounded answers for each topic, sample
 warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key coverage (19 tests).
+The auth suite covers email normalization, salted hashing (no plaintext stored), validation errors,
+duplicate accounts, correct and incorrect sign-in, throttling after repeated failures, session
+resume and expiry, and per-account storage namespaces (8 tests). The market-alert suite covers
+weekday, weekend, holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries,
+pre-close reminders, duplicate suppression, disabled groups, notification permission gating and
+EN/ES alert copy and the signed-in requirement (13 tests). All four suites total 61 tests.
 
 ## What is in the MVP
 
+- **On-device accounts** — sign in or create an account stored only in this browser (PBKDF2-SHA256
+  hash, 30-day session). The top-right profile menu shows the signed-in name, email, account date,
+  trading profile, a settings link and sign-out. This is a local access gate, not server-side
+  authorization.
+- **Local-first storage** — data remains in this browser profile.
+- **Date and time** — a live clock with weekday, date, time and time zone appears in the top bar on
+  every screen and on the sign-in screen before access. The alerts panel shows the exact Eastern
+  Time date and time of the next U.S. stock or forex session event alongside the countdown.
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
   Answers are editable later in Settings and drive the default lens and copy density.
 - **Dashboard** — a hero read of the current session (watchlist count, six lenses, zero orders placed),
-  search (ticker/asset), quick analysis, watchlist, recent analyses, market overview,
+  Bing web search, quick asset shortcuts, U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market overview,
   and reference events. Recently opened analyses and non-catalog tickers are persisted with enough
   metadata to reopen them.
 - **Analysis page** — identical seven-section structure for every asset:
@@ -105,8 +135,14 @@ warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key c
   live plan and the selected language. No external model, no network request, no prediction.
 - **Six lenses** — Day, Swing, Long term, Options, FX & futures, Beginner. They are tailored views of
   the same core read, not separate products. Each lens re-weights what is emphasized.
-- **Settings** — profile chips, default lens, language (English/Spanish), data mode (`auto` / `sample`),
-  optional Alpha Vantage key, feedback export, and full local reset.
+- **Market session alerts** — on by default and managed from the bell in the top bar. Reminds you
+  when the U.S. stock session opens, 15 minutes before the close, and at the close (including early
+  closes and exchange holidays), plus the Sunday open and Friday close of the forex week. The bell
+  panel shows whether each market is open or closed and when the next event is due. Alerts are
+  scheduled on this device while TIKO is open; browser notifications are optional and need
+  permission. Crypto trades continuously, so it has no daily open or close.
+- **Settings** — profile chips, default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
+  optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
 - **Feedback and notes** — helpful / inaccurate / missing context, plus a free-text comment and a
   per-symbol note. Stored locally, exportable as JSON.
 
@@ -115,8 +151,10 @@ warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key c
 | Market | Default source | Labeling |
 | --- | --- | --- |
 | Crypto | CoinGecko public API (`/coins/markets`, `/market_chart`) | `LIVE` with retrieval timestamp, or `SAMPLE` |
-| Stocks | Synthetic seeded series | `SAMPLE`, watermark and banner, sample exchange label |
+| Stocks | Synthetic seeded series | `SAMPLE`, watermark and banner; exchange is the listing venue |
 | Stocks (optional) | Alpha Vantage (`TIME_SERIES_DAILY`, `GLOBAL_QUOTE`) with your own key | `LIVE` / `DELAYED`, end-of-day bars |
+| FX reference rates | Frankfurter (`/v2/rates`, `/v2/currencies`, `/v2/providers`) | Latest published daily reference rate, source and date; not real-time trading quotes |
+| U.S. stock listings | Nasdaq Trader symbol directories (`nasdaqlisted.txt`, `otherlisted.txt`) | Current Nasdaq, NYSE and NYSE Arca listings; directory names only, never prices |
 
 - Sample data is generated with a seeded geometric random walk so it is stable per session and asset.
   It is explicitly labeled in the header, chart, banner and sources. It is never presented as a quote.
@@ -127,13 +165,17 @@ warnings, fallback scope, citations and follow-ups, determinism, and EN/ES key c
   (45–90 seconds) and a single overview call to reduce rate-limit pressure.
 - Intraday availability depends on the provider. When a provider cannot supply intraday bars, the
   analysis reports the actual interval used rather than silently substituting it.
+- The dashboard stock directory searches the current official symbol listings through `/api/stocks`.
+  It excludes test issues, ETFs and non-stock instruments. Listing coverage does not make prices live;
+  stock analysis remains labeled `SAMPLE` until a stock data key is configured.
 
-### Optional Alpha Vantage key
+### Optional Alpha Vantage key (stocks)
 
 1. Get a free key at <https://www.alphavantage.co/support/#api-key>.
 2. Open **Settings → Data sources**, paste the key, and use **Test key**.
-3. The key is stored unencrypted in this browser's localStorage and sent only to Alpha Vantage.
-4. The free tier has a low daily quota. Failures fall back to labeled sample data.
+3. The key is kept in this tab's `sessionStorage` and sent directly to Alpha Vantage for stock data. It is cleared on sign-out or when the tab session ends.
+4. FX reference rates use Frankfurter and need no API key.
+5. Other market-data failures fall back to clearly labeled sample data where available.
 
 ## Design
 
@@ -157,11 +199,13 @@ Classic scripts sharing a `window.TA` namespace, loaded in dependency order by `
 index.html          script order, app roots
 styles.css          design tokens, layout, components, responsive rules
 js/util.js          escaping, formatting, DOM helpers, seeded RNG, storage helpers
-js/i18n.js          EN/ES dictionaries and templating ({{var}})
+js/auth.js          on-device accounts: PBKDF2 hashing, sessions, throttling, sign-in screen
+js/i18n.js          EN/ES dictionaries, core FR/PT-BR translations, and templating ({{var}})
 js/store.js         settings, watchlist, recents, notes, feedback (localStorage)
+js/market-notifications.js  exchange calendars, session state, local open/close alerts
 js/indicators.js    SMA, RSI(14), ATR, realized volatility, pivots, drawdown
 js/catalog.js       supported assets, search, sample-series parameters
-js/data.js          providers, caching, fallback, overview/quotes, resolution
+js/data.js          providers, caching, fallback, overview/quotes, FX reference rates
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
 js/copilot.js       on-device brief and question answering over facts, plan and levels
@@ -184,17 +228,19 @@ never sends an order anywhere.
 
 Storage keys: `gt.settings.v1` also holds `accountSize` and `riskPct` for the sizing calculator.
 
-Routes: `#/`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
+Routes: `#/`, `#/markets`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
 correctly from recents or the watchlist.
 
 ### Storage keys
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
-`gt.planlevels.v1`.
+`gt.planlevels.v1`, plus `gt.auth.users.v1`, `gt.auth.session.v1`, `gt.auth.throttle.v1` and
+`gt.auth.lang.v1` for the device account. `gt.market-alerts.last-event.v1` records the last
+delivered session alert so a reload does not repeat it; alert preferences live in `gt.settings.v1`.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
-Nothing leaves the browser; feedback export is a local JSON download.
+Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, and submitted Bing searches are sent to Bing.
 
 ### Adding a market data provider
 
@@ -208,11 +254,19 @@ Nothing leaves the browser; feedback export is a local JSON download.
 5. Keep the honesty contract: label live vs. delayed vs. sample, expose timestamps, and update the
    Sources section if the provider changes.
 
+The Markets page (`#/markets`) searches the official Nasdaq Trader directories for Nasdaq, NYSE and
+NYSE Arca stocks, and loads current and legacy currency codes, latest rates, and source attribution
+from the public Frankfurter API. Rates can be filtered by provider. Frankfurter rates are daily
+reference rates, not intraday trading quotes; they require internet access but no API key. Stock
+directory entries are real listings, while stock charts remain sample data unless a stock data key
+is configured.
+
 ### Adding a language
 
-Add a dictionary to `js/i18n.js`, add an entry to `langs`, and translate the generated-analysis
-strings used by `js/analysis.js`. Interface and generated copy are both localized; the language is
-applied on change and persists in settings.
+Add a dictionary to `js/i18n.js` and an entry to `langs`. Translate interface and generated-analysis
+strings; untranslated keys fall back to English. The language is applied on change and persists in
+settings. French and Brazilian Portuguese currently cover core screens, with detailed analysis copy
+still being translated.
 
 ## Accessibility and UX notes
 
@@ -227,8 +281,9 @@ applied on change and persists in settings.
 ## Scope boundaries
 
 Included: stocks and crypto, on-demand analysis, search, watchlist, recent analyses, local feedback.
-Excluded by design: alerts, broker connections, portfolio tracking, automated strategies, licensed
-news/event feeds, options chains, fundamental valuation data.
+Excluded by design: price or trigger alerts, broker connections, portfolio tracking, automated
+strategies, licensed news/event feeds, options chains, fundamental valuation data. Market-session
+open/close reminders are included because they describe exchange hours, not a trade recommendation.
 
 ## Disclaimer
 

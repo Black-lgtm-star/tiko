@@ -8,6 +8,7 @@
   var C = TA.catalog;
   var CG = 'https://api.coingecko.com/api/v3';
   var AV = 'https://www.alphavantage.co/query';
+  var FX = 'https://api.frankfurter.dev/v2';
 
   var cache = new Map();
   var chain = Promise.resolve();
@@ -177,6 +178,86 @@
     if (j && j['Error Message']) return DataError('auth', j['Error Message']);
     if (j && (j['Note'] || j['Information'])) return DataError('rate', j['Note'] || j['Information']);
     return null;
+  }
+
+  function liveForexCurrencies() {
+    return cached('frankfurter:currencies:all', 24 * 60 * 60 * 1000, function () {
+      return fetchJSON(FX + '/currencies?scope=all').then(function (rows) {
+        if (!Array.isArray(rows)) throw DataError('empty', 'No currency directory');
+        return rows.map(function (row) {
+          return { code: row.iso_code, name: row.name };
+        }).filter(function (row) { return /^[A-Z]{3}$/.test(row.code || '') && row.name; })
+          .sort(function (a, b) { return a.code.localeCompare(b.code); });
+      });
+    });
+  }
+
+  function liveForexCurrency(code) {
+    var currency = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) return Promise.reject(DataError('unsupported', 'Unsupported currency'));
+    return cached('frankfurter:currency:' + currency, 24 * 60 * 60 * 1000, function () {
+      return fetchJSON(FX + '/currency/' + encodeURIComponent(currency.toLowerCase()));
+    });
+  }
+
+  function liveForexProviders() {
+    return cached('frankfurter:providers', 24 * 60 * 60 * 1000, function () {
+      return fetchJSON(FX + '/providers').then(function (rows) {
+        if (!Array.isArray(rows)) throw DataError('empty', 'No provider directory');
+        return rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+      });
+    });
+  }
+
+  function liveForexRate(from, to, provider) {
+    var source = String(provider || '').trim().toLowerCase();
+    if (source) {
+      return cached('frankfurter:provider-rate:' + source + ':' + from + ':' + to, 5 * 60 * 1000, function () {
+        return fetchJSON(FX + '/providers/' + encodeURIComponent(source) + '/rate/' +
+          encodeURIComponent(from.toLowerCase()) + '/' + encodeURIComponent(to.toLowerCase()));
+      }).then(function (q) {
+        if (!q || !U.isNum(q.rate) || q.rate <= 0) throw DataError('empty', 'No provider FX rate');
+        return {
+          from: q.base, to: q.quote, rate: q.rate, refreshedAt: q.date,
+          providers: [{ key: source.toUpperCase(), date: q.date, rate: q.rate }],
+          timezone: 'UTC', retrievedAt: Date.now(), provider: 'Frankfurter',
+          providerUrl: 'https://frankfurter.dev/'
+        };
+      });
+    }
+    return liveForexRates(from, [to]).then(function (rates) {
+      var q = rates.find(function (row) { return row.quote === to; });
+      if (!q || !U.isNum(q.rate) || q.rate <= 0) throw DataError('unsupported', 'No rate for this currency pair');
+      return {
+        from: q.base, to: q.quote, rate: q.rate, refreshedAt: q.date,
+        providers: q.providers || [],
+        timezone: 'UTC', retrievedAt: Date.now(), provider: 'Frankfurter',
+        providerUrl: 'https://frankfurter.dev/'
+      };
+    });
+  }
+
+  function liveForexRates(base, quotes, provider) {
+    var currency = String(base || 'USD').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) return Promise.reject(DataError('unsupported', 'Unsupported base currency'));
+    var targets = Array.isArray(quotes) ? quotes.map(function (code) { return String(code).trim().toUpperCase(); }) : [];
+    var source = String(provider || '').trim().toLowerCase();
+    if (source && !/^[a-z0-9_-]+$/.test(source)) return Promise.reject(DataError('unsupported', 'Unsupported FX provider'));
+    if (targets.some(function (code) { return !/^[A-Z]{3}$/.test(code); })) {
+      return Promise.reject(DataError('unsupported', 'Unsupported quote currency'));
+    }
+    var cacheKey = 'frankfurter:rates:providers:' + currency + ':' + targets.slice().sort().join(',') + ':' + source;
+    return cached(cacheKey, 5 * 60 * 1000, function () {
+      var query = '?base=' + encodeURIComponent(currency.toLowerCase()) + '&expand=providers';
+      if (targets.length) query += '&quotes=' + encodeURIComponent(targets.join(',').toLowerCase());
+      if (source) query += '&providers=' + encodeURIComponent(source);
+      return fetchJSON(FX + '/rates' + query).then(function (rows) {
+        if (!Array.isArray(rows)) throw DataError('empty', 'No FX rates');
+        return rows.filter(function (row) {
+          return row && row.base === currency && /^[A-Z]{3}$/.test(row.quote || '') && U.isNum(row.rate) && row.rate > 0;
+        });
+      });
+    });
   }
 
   function liveStock(asset, timeframe, key) {
@@ -435,6 +516,25 @@
       }
       return sampleData(asset, timeframe, {});
     },
+
+    getForexRate: function (from, to, provider) {
+      var base = String(from || '').trim().toUpperCase();
+      var quote = String(to || '').trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(base) || !/^[A-Z]{3}$/.test(quote) || base === quote) {
+        return Promise.reject(DataError('unsupported', 'Unsupported currency pair'));
+      }
+      if (navigator.onLine === false) return Promise.reject(DataError('offline', 'The device is offline'));
+      return liveForexCurrencies().then(function (currencies) {
+        var supported = currencies.some(function (c) { return c.code === base; }) && currencies.some(function (c) { return c.code === quote; });
+        if (!supported) throw DataError('unsupported', 'Unsupported currency pair');
+        return liveForexRate(base, quote, provider);
+      });
+    },
+
+    getForexCurrencies: liveForexCurrencies,
+    getForexCurrency: liveForexCurrency,
+    getForexProviders: liveForexProviders,
+    getForexRates: liveForexRates,
 
     resolveSymbol: function (raw) {
       var symbol = U.normalizeSymbol(raw);

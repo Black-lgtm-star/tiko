@@ -14,12 +14,12 @@
     { symbol: 'GOOGL', name: 'Alphabet Inc.', sector: 'Technology', currency: 'USD', px: 186, drift: 0.10, vol: 0.26, vol24: 2.8e7, shares: 1.23e10 },
     { symbol: 'META', name: 'Meta Platforms Inc.', sector: 'Technology', currency: 'USD', px: 604, drift: 0.14, vol: 0.33, vol24: 1.4e7, shares: 2.53e9 },
     { symbol: 'AMD', name: 'Advanced Micro Devices', sector: 'Semiconductors', currency: 'USD', px: 152, drift: 0.13, vol: 0.46, vol24: 5.0e7, shares: 1.62e9 },
-    { symbol: 'JPM', name: 'JPMorgan Chase & Co.', sector: 'Financials', currency: 'USD', px: 246, drift: 0.07, vol: 0.21, vol24: 1.0e7, shares: 2.84e9 },
-    { symbol: 'SPY', name: 'SPDR S&P 500 ETF', sector: 'Broad market ETF', currency: 'USD', px: 598, drift: 0.08, vol: 0.15, vol24: 7.0e7, shares: null, isEtf: true }
+    { symbol: 'JPM', name: 'JPMorgan Chase & Co.', sector: 'Financials', currency: 'USD', exchange: 'NYSE', px: 246, drift: 0.07, vol: 0.21, vol24: 1.0e7, shares: 2.84e9 },
+    { symbol: 'SPY', name: 'SPDR S&P 500 ETF', sector: 'Broad market ETF', currency: 'USD', exchange: 'NYSE Arca', px: 598, drift: 0.08, vol: 0.15, vol24: 7.0e7, shares: null, isEtf: true }
   ].map(function (s) {
     return Object.assign({
       assetClass: 'stock',
-      exchange: 'Sample · US',
+      exchange: s.exchange || 'Nasdaq',
       barsPerYear: 252,
       intradayStartMinute: 9 * 60 + 30
     }, s);

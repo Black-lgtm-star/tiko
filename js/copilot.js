@@ -5,7 +5,7 @@
   'use strict';
   var U = TA.util;
 
-  var PROMPTS = ['setup', 'levels', 'risk', 'trend', 'volatility', 'data'];
+  var PROMPTS = ['setup', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
   var INTENTS = ['setup', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'data', 'summary'];
   var CITES = ['plan', 'snapshot', 'context', 'cases', 'levels', 'scenarios', 'risks', 'sources'];
 
@@ -14,7 +14,7 @@
     { id: 'volume', re: /\b(volume|volumen|liquidity|liquidez|participation|participacion)\b/ },
     { id: 'volatility', re: /\b(volatil\w*|atr|range|rango|move|movimiento|amplitud)\b/ },
     { id: 'risk', re: /\b(risks?|riesgos?|invalidat\w*|invalid\w*|stop|downside|wrong|perder|perdida|protege?|proteccion)\b/ },
-    { id: 'scenario', re: /\b(scenarios?|escenarios?|breakout|break|ruptura|rompe|if)\b/ },
+    { id: 'scenario', re: /\b(scenarios?|simulation|simulate|outcomes?|escenarios?|simulacion|simular|resultados|breakout|break|ruptura|rompe|if)\b/ },
     { id: 'levels', re: /\b(levels?|niveles?|support|soporte|resistance|resistencia)\b/ },
     { id: 'trend', re: /\b(trend|tendencia|direction|direccion|bull\w*|bear\w*|alcista|bajista|momentum|impulso)\b/ },
     { id: 'setup', re: /\b(setup|situacion|plan|trade|entry|entrada|enter|buy|comprar|sell|vender|long|corto|largo|short|action|accion)\b/ },
@@ -87,6 +87,35 @@
     });
   }
 
+  function scenarioLine(plan) {
+    var s = plan && plan.scenario;
+    if (!s) return null;
+    return T('copilot.a.setup.scenario', {
+      entry: s.entryText,
+      target: s.targetText,
+      gain: U.fmtPct(s.gainPct, { sign: true }),
+      stop: s.stopText,
+      loss: U.fmtPct(-s.lossPct, { sign: true }),
+      rr: U.isNum(s.rr) ? s.rr.toFixed(1) + ' : 1' : '—'
+    });
+  }
+
+  function simulationSummary(plan) {
+    var s = plan && plan.simulation;
+    if (!s || s.error) return null;
+    return T('copilot.a.simulation.summary', {
+      side: T(s.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell'),
+      n: s.paths,
+      h: s.horizon,
+      interval: T('an.interval.' + (s.interval === 'intraday' ? 'intraday' : 'daily')),
+      p10: fmtPct(s.p10.movePct),
+      median: fmtPct(s.median.movePct),
+      p90: fmtPct(s.p90.movePct),
+      target: s.hasTarget ? U.fmtPct(s.targetFirstPct, { sign: false }) : T('sim.notSet'),
+      stop: s.hasStop ? U.fmtPct(s.stopFirstPct, { sign: false }) : T('sim.notSet')
+    });
+  }
+
   function brief(a, plan) {
     a = a || {};
     var f = a.facts || {};
@@ -156,6 +185,8 @@
         e: p.entryText, s: p.stopText, t: p.targetText, rr: p.rrText
       }));
     }
+    if (scenarioLine(p)) paragraphs.push(scenarioLine(p));
+    if (simulationSummary(p)) paragraphs.push(simulationSummary(p));
     if (p.checks && p.checks.length) {
       var ok = p.checks.filter(function (c) { return c.ok; }).length;
       paragraphs.push(T('copilot.a.setup.checks', { ok: ok, n: p.checks.length }));
@@ -283,6 +314,7 @@
   }
 
   function scenarioAnswer(a, plan) {
+    var p = plan || {};
     var paragraphs = (a.scenarios || []).map(function (sc) {
       return T('copilot.a.scenario.line', {
         name: T(sc.titleKey, sc.params),
@@ -291,12 +323,15 @@
       });
     });
     if (!paragraphs.length) paragraphs.push(T('copilot.a.scenario.none'));
+    if (simulationSummary(p)) paragraphs.push(simulationSummary(p));
     return { paragraphs: paragraphs, cites: ['scenarios'], followups: ['risk', 'levels'] };
   }
 
   function evidenceAnswer(a, plan) {
+    var p = plan || {};
     var paragraphs = [];
     if (a.lean) paragraphs.push(T('an.lean.' + a.lean.dir + '.' + a.lean.confidence));
+    if (scenarioLine(p)) paragraphs.push(scenarioLine(p));
     var bull = ((a.evidence && a.evidence.bull) || []).map(function (e) { return T(e.key, e.params); }).join(' · ');
     var bear = ((a.evidence && a.evidence.bear) || []).map(function (e) { return T(e.key, e.params); }).join(' · ');
     paragraphs.push(T('copilot.a.evidence.bull', { list: bull || '—' }));
@@ -307,9 +342,23 @@
   function chartAnswer(a, plan) {
     var f = a.facts || {};
     var m = a.meta || {};
+    var chart = a.chart || {};
+    var closes = chart.closes || [];
+    var lastClose = closes.length ? closes[closes.length - 1] : null;
+    function lastValid(values) {
+      values = values || [];
+      for (var i = values.length - 1; i >= 0; i--) if (U.isNum(values[i])) return values[i];
+      return null;
+    }
+    function relation(value, average) {
+      if (!U.isNum(value) || !U.isNum(average)) return T('copilot.a.chart.notComparable');
+      var delta = Math.abs(value / average - 1);
+      if (delta < 0.0005) return T('copilot.a.chart.near');
+      return T(value > average ? 'copilot.a.chart.above' : 'copilot.a.chart.below');
+    }
     var interval = T('an.interval.' + (m.interval === 'intraday' ? 'intraday' : 'daily'));
     var paragraphs = [
-      T('copilot.a.chart.window', { n: m.barCount, interval: interval, price: f.priceText || fmtP(f.price) }),
+      T('copilot.a.chart.window', { n: m.barCount, interval: interval, price: U.isNum(lastClose) ? fmtP(lastClose) : (f.priceText || fmtP(f.price)) }),
       T('copilot.a.chart.range', {
         lo: f.rangeLowText || '—', hi: f.rangeHighText || '—',
         dd: f.drawdownText || '—', fromLow: f.fromLowText || '—'
@@ -319,6 +368,24 @@
         n: (a.levels || []).length
       })
     ];
+    if (U.isNum(lastClose)) {
+      paragraphs.push(T('copilot.a.chart.barClose', { close: fmtP(lastClose) }));
+      var quote = U.isNum(f.price) ? f.price : null;
+      var difference = quote && lastClose ? Math.abs(quote / lastClose - 1) * 100 : 0;
+      if (difference >= 0.05) {
+        paragraphs.push(T('copilot.a.chart.quoteGap', {
+          quote: fmtP(quote), close: fmtP(lastClose), diff: fmtPct(difference, false)
+        }));
+      }
+      var sma20 = lastValid(chart.sma20);
+      var sma50 = lastValid(chart.sma50);
+      if (U.isNum(sma20) && U.isNum(sma50)) {
+        paragraphs.push(T('copilot.a.chart.maRead', {
+          close: fmtP(lastClose), vs20: relation(lastClose, sma20), sma20: U.isNum(sma20) ? fmtP(sma20) : '—',
+          vs50: relation(lastClose, sma50), sma50: U.isNum(sma50) ? fmtP(sma50) : '—'
+        }));
+      }
+    }
     if (a.chart && a.chart.sample) paragraphs.push(T('copilot.a.chart.sample'));
     return { paragraphs: paragraphs, cites: ['snapshot', 'levels'], followups: ['levels', 'trend'] };
   }

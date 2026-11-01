@@ -34,6 +34,7 @@
       [model.sma20, model.sma50].forEach(function (arr) {
         if (arr) arr.forEach(function (v) { if (U.isNum(v)) vals.push(v); });
       });
+      if (U.isNum(model.quotePrice) && model.quotePrice > 0) vals.push(model.quotePrice);
       (model.levels || []).forEach(function (l) { if (U.isNum(l.price)) vals.push(l.price); });
 
       var min = Math.min.apply(null, vals);
@@ -91,7 +92,7 @@
           '<rect x="' + (W - pad.r + 4) + '" y="' + (ly - 7).toFixed(1) + '" width="66" height="14" rx="3" fill="' +
           color + '" fill-opacity="0.12" stroke="' + color + '" stroke-opacity="0.24"/>' +
           '<text x="' + (W - pad.r + 8) + '" y="' + (ly + 3.3).toFixed(1) + '" fill="' + color +
-          '" font-size="9.5" font-family="ui-monospace,monospace">' + axisPrice(l.price) + '</text>';
+          '" font-size="9.5" font-family="ui-monospace,monospace">' + U.esc(U.fmtPrice(l.price, '', model.lang)) + '</text>';
       });
 
       var xlabels = '';
@@ -111,20 +112,32 @@
 
       var last = pts[pts.length - 1];
       var lastVal = closes[closes.length - 1];
+      var quoteDiffers = U.isNum(model.quotePrice) && model.quotePrice > 0 &&
+        Math.abs(model.quotePrice - lastVal) > Math.max(Math.abs(lastVal) * 0.000001, 1e-10);
+      var quoteY = quoteDiffers ? y(model.quotePrice) : null;
       var up = closes[closes.length - 1] >= closes[0];
       var stroke = up ? '#3ddc97' : '#ff5c8a';
       var watermark = model.sample
         ? '<text x="' + (W / 2) + '" y="' + (H / 2 + 10) + '" fill="#ffc857" fill-opacity="0.10" font-size="46" font-weight="700" letter-spacing="6" text-anchor="middle" transform="rotate(-14 ' + (W / 2) + ' ' + (H / 2) + ')">SAMPLE DATA</text>'
         : '';
+      var quoteMark = quoteDiffers
+        ? '<line x1="' + pad.l + '" y1="' + quoteY.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + quoteY.toFixed(1) + '" stroke="#f5f0ff" stroke-opacity="0.34" stroke-width="1" stroke-dasharray="5 4"/>' +
+          '<circle cx="' + last[0].toFixed(1) + '" cy="' + quoteY.toFixed(1) + '" r="3.8" fill="#f5f0ff" stroke="#07040e" stroke-width="1.5"/>' +
+          '<text x="' + (W - pad.r - 5) + '" y="' + (quoteY - 6).toFixed(1) + '" fill="#f5f0ff" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">' +
+          U.esc(model.quoteLabel || 'Current') + ': ' + U.esc(model.quoteText || axisPrice(model.quotePrice)) + '</text>'
+        : '';
 
       return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price chart">' +
+        '<title>' + U.esc(model.quoteLabel || 'Current price') + ': ' + U.esc(model.quoteText || axisPrice(U.isNum(model.quotePrice) ? model.quotePrice : lastVal)) + '</title>' +
+        '<desc>' + U.esc(model.closeLabel || 'Last plotted close') + ': ' + U.esc(U.fmtPrice(lastVal, '', model.lang)) +
+          (quoteDiffers ? '. ' + U.esc(model.quoteLabel || 'Current price') + ': ' + U.esc(model.quoteText || axisPrice(model.quotePrice)) : '') + '</desc>' +
         '<defs><linearGradient id="fill-' + (model.uid || 'x') + '" x1="0" y1="0" x2="0" y2="1">' +
         '<stop offset="0%" stop-color="' + stroke + '" stop-opacity="0.18"/>' +
         '<stop offset="100%" stop-color="' + stroke + '" stop-opacity="0"/>' +
         '</linearGradient></defs>' +
         grid + watermark +
         '<path d="' + area + '" fill="url(#fill-' + (model.uid || 'x') + ')"/>' +
-        smaPaths + levels +
+        smaPaths + levels + quoteMark +
         '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>' +
         '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3.2" fill="' + stroke + '"/>' +
         '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="7" fill="' + stroke + '" fill-opacity="0.16"/>' +

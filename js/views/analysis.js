@@ -31,18 +31,31 @@
         px: 1, vol24: 0, shares: null
       };
     }
+    if (params.cls === 'stock') {
+      return {
+        assetClass: 'stock', symbol: U.normalizeSymbol(params.symbol),
+        name: params.name || params.symbol, currency: 'USD',
+        exchange: params.exchange || 'U.S. listed', barsPerYear: 252,
+        intradayStartMinute: 9 * 60 + 30, px: 120, vol: 0.62, drift: 0.08, vol24: 1e8, shares: null
+      };
+    }
     return null;
   }
 
   /* ---------------- section 01 ---------------- */
   function chartModel(a, uid, w, h) {
+    var lastClose = a.chart.closes[a.chart.closes.length - 1];
     return {
       uid: uid, width: w, height: h,
       times: a.chart.times, closes: a.chart.closes,
       sma20: a.chart.sma20, sma50: a.chart.sma50,
       levels: a.chart.levels, sample: a.chart.sample,
       interval: a.chart.interval, lang: lang(),
-      lastLabel: U.fmtPrice(a.facts.price, '$', lang()),
+      quotePrice: a.facts.price,
+      quoteText: U.fmtPrice(a.facts.price, '$', lang()),
+      quoteLabel: T('an.chart.current'),
+      closeLabel: T('an.chart.last_close'),
+      lastLabel: U.fmtPrice(lastClose, '$', lang()),
       emptyText: T('an.chart.empty')
     };
   }
@@ -92,6 +105,7 @@
               '<div class="chart-wrap">' + chart + '</div>' +
               '<div class="chart-legend">' +
                 '<span class="lg"><i style="background:var(--bull)"></i>' + esc(T('an.chart.legend.price')) + '</span>' +
+                '<span class="lg"><i style="background:#f5f0ff;width:7px;height:7px;border-radius:50%"></i>' + esc(T('an.chart.legend.quote')) + '</span>' +
                 '<span class="lg"><i style="background:#29e0ff"></i>' + esc(T('an.chart.legend.sma20')) + '</span>' +
                 '<span class="lg"><i style="background:#c084fc"></i>' + esc(T('an.chart.legend.sma50')) + '</span>' +
                 '<span class="lg"><i style="background:var(--muted-2)"></i>' + esc(T('an.chart.legend.level')) + '</span>' +
@@ -265,6 +279,37 @@
     '</div>';
   }
 
+  function planScenarioHtml(plan) {
+    var s = plan && plan.scenario;
+    if (!s) return '';
+    return '<section class="plan-scenario" aria-label="' + U.attr(T('plan.scenario.title')) + '">' +
+      '<div class="plan-scenario-head"><div><span class="eyebrow">' + esc(T('plan.scenario.eyebrow')) + '</span>' +
+        '<h3>' + esc(T('plan.scenario.title')) + '</h3></div>' +
+        '<span class="badge ' + (plan.side === 'long' ? 'badge-bull' : 'badge-bear') + '">' +
+          esc(T(plan.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell')) + '</span></div>' +
+      (s.hypothetical ? '<p class="tiny muted">' + esc(T('plan.scenario.hypothetical')) + '</p>' : '') +
+      '<div class="plan-scenario-grid">' +
+        planCell(T('plan.levels.entry'), s.entryText, '', 'entry') +
+        planCell(T('plan.scenario.target'), s.targetText, U.isNum(s.gainPct) ? U.fmtPct(s.gainPct, { sign: true }) : '', 'target') +
+        planCell(T('plan.levels.stop'), s.stopText, U.isNum(s.lossPct) ? U.fmtPct(-s.lossPct, { sign: true }) : '', 'stop') +
+        planCell(T('plan.levels.rr'), U.isNum(s.rr) ? s.rr.toFixed(1) + ' : 1' : '—', '', 'rr') +
+      '</div>' +
+      '<p class="tiny muted plan-scenario-method">' + esc(T('plan.scenario.method')) + '</p>' +
+    '</section>';
+  }
+
+  function planSidePickerHtml(entry) {
+    return '<div class="plan-side-picker" role="group" aria-label="' + U.attr(T('plan.scenario.choose')) + '">' +
+      '<span class="tiny muted">' + esc(T('plan.scenario.choose')) + '</span>' +
+      ['long', 'short'].map(function (side) {
+        var chosen = entry.selectedSide === side;
+        return '<button type="button" class="btn btn-sm plan-side-btn ' + (chosen ? 'selected ' : '') + side + '" ' +
+          'data-plan-side="' + side + '" aria-pressed="' + (chosen ? 'true' : 'false') + '">' +
+          esc(T(side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell')) + '</button>';
+      }).join('') +
+    '</div>';
+  }
+
   function planChecksHtml(plan) {
     if (!plan.checks || !plan.checks.length) return '';
     if (plan.state === 'invalidated' || plan.state === 'extended') return '';
@@ -274,6 +319,30 @@
           ui.icon(c.ok ? 'check' : 'close', 11) + ' ' + esc(T(c.key, c.params)) + '</span>';
       }).join('') +
     '</div>';
+  }
+
+  function planStepsHtml(plan) {
+    var hasLevels = U.isNum(plan.entry) && U.isNum(plan.stop) && U.isNum(plan.target) &&
+      plan.state !== 'no_edge' && plan.state !== 'invalidated' && plan.state !== 'practice' && plan.state !== 'extended';
+    var size = plan.sizeAllowed ? TA.tradeplan.size(plan, TA.store.settings()) : null;
+    var action = T(plan.actionKey || 'plan.act.noEdge', plan.actionParams || {});
+    var risk = hasLevels
+      ? T('plan.steps.riskReady', { entry: plan.entryText, stop: plan.stopText, target: plan.targetText, rr: plan.rrText })
+      : T('plan.steps.riskWait');
+    var sizeText = size
+      ? T('plan.steps.sizeReady', { units: U.fmtNum(size.units, lang(), size.units >= 1 ? 2 : 6), loss: U.fmtPrice(size.maxLoss, '$', lang()) })
+      : T('plan.steps.sizeWait');
+    var rows = [
+      ['plan.steps.entry', action],
+      ['plan.steps.risk', risk],
+      ['plan.steps.size', sizeText]
+    ];
+    return '<section class="plan-steps" aria-labelledby="plan-steps-title">' +
+      '<h3 id="plan-steps-title">' + esc(T('plan.steps.title')) + '</h3>' +
+      '<ol>' + rows.map(function (row, i) {
+        return '<li><span class="plan-step-number" aria-hidden="true">' + (i + 1) + '</span>' +
+          '<div><b>' + esc(T(row[0])) + '</b><p>' + esc(row[1]) + '</p></div></li>';
+      }).join('') + '</ol></section>';
   }
 
   function levelErrorsHtml(errors) {
@@ -286,7 +355,58 @@
     }).join('');
   }
 
-  function planBodyHtml(plan) {
+  function simulationBand(labelKey, band) {
+    return '<div class="sim-band"><span class="k">' + esc(T(labelKey)) + '</span>' +
+      '<b class="mono">' + esc(U.fmtPct(band.movePct, { sign: true })) + '</b>' +
+      '<span class="tiny muted">' + esc(T('sim.endPrice', { price: U.fmtPrice(band.endPrice, '$', lang()) })) + '</span></div>';
+  }
+
+  function simulationResultsHtml(entry) {
+    var sim = entry.simulation;
+    if (!entry.selectedSide) return '<p class="tiny muted">' + esc(T('sim.chooseSide')) + '</p>';
+    if (!sim) return '<p class="tiny muted">' + esc(T('sim.prompt')) + '</p>';
+    if (sim.error) return '<p class="tiny muted">' + esc(T(sim.error)) + '</p>';
+    var rows = simulationBand('sim.p10', sim.p10) +
+      simulationBand('sim.median', sim.median) +
+      simulationBand('sim.p90', sim.p90);
+    var barriers = (sim.hasStop || sim.hasTarget)
+      ? '<div class="sim-hits">' +
+        (sim.hasTarget ? '<span>' + esc(T('sim.targetFirst', { pct: U.fmtPct(sim.targetFirstPct, { sign: false }) })) + '</span>' : '') +
+        (sim.hasStop ? '<span>' + esc(T('sim.stopFirst', { pct: U.fmtPct(sim.stopFirstPct, { sign: false }) })) + '</span>' : '') +
+        '<span>' + esc(T('sim.neither', { pct: U.fmtPct(sim.neitherPct, { sign: false }) })) + '</span></div>'
+      : '';
+    return '<p class="tiny muted sim-summary">' + esc(T('sim.resultLead', {
+      n: sim.paths, h: sim.horizon, interval: T('an.interval.' + (sim.interval === 'intraday' ? 'intraday' : 'daily')),
+      side: T(sim.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell'),
+      entry: U.fmtPrice(sim.entry, '$', lang()), history: sim.historyCount
+    })) + '</p>' +
+      (sim.hypotheticalEntry ? '<p class="tiny muted">' + esc(T('sim.hypothetical')) + '</p>' : '') +
+      (sim.sample ? '<p class="tiny muted sim-sample">' + esc(T('sim.sample')) + '</p>' : '') +
+      '<div class="sim-bands">' + rows + '</div>' + barriers +
+      '<p class="tiny muted sim-caveat">' + esc(T('sim.caveat')) + '</p>';
+  }
+
+  function simulationPanelHtml(entry) {
+    var selected = !!entry.selectedSide;
+    return '<section class="plan-simulation" data-simulation aria-labelledby="simulation-title">' +
+      '<div class="plan-simulation-head"><div><span class="eyebrow">' + esc(T('copilot.title')) + '</span>' +
+        '<h3 id="simulation-title">' + esc(T('sim.title')) + '</h3>' +
+        '<p class="tiny muted">' + esc(T('sim.subtitle')) + '</p></div>' +
+        '<span class="badge badge-neutral">' + esc(T(selected ? (entry.selectedSide === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell') : 'plan.side.none')) + '</span></div>' +
+      '<div class="sim-controls"><label><span>' + esc(T('sim.horizon')) + '</span>' +
+        '<select class="input" data-sim-horizon>' +
+          [5, 10, 20].map(function (n) {
+            var chosen = Number(entry.simulationHorizon || 10) === n;
+            return '<option value="' + n + '"' + (chosen ? ' selected' : '') + '>' + esc(T('sim.steps', { n: n })) + '</option>';
+          }).join('') +
+        '</select></label>' +
+        '<button type="button" class="btn btn-sm btn-primary" data-sim-run' + (selected ? '' : ' disabled') + '>' +
+          ui.icon('pulse', 13) + ' ' + esc(T('sim.run')) + '</button></div>' +
+      '<div class="sim-results" data-sim-results aria-live="polite">' + simulationResultsHtml(entry) + '</div>' +
+    '</section>';
+  }
+
+  function planBodyHtml(plan, entry) {
     var tone = plan.side === 'long' ? 'up' : plan.side === 'short' ? 'down' : 'flat';
     var chgBadge = U.isNum(plan.changePct)
       ? '<span class="badge ' + (plan.changePct > 0 ? 'badge-bull' : plan.changePct < 0 ? 'badge-bear' : 'badge-neutral') + '">' +
@@ -310,6 +430,9 @@
         '</div>' +
         planLevelsHtml(plan) +
       '</div>' +
+      planStepsHtml(plan) +
+      simulationPanelHtml(entry) +
+      planScenarioHtml(plan) +
       planSizingHtml(plan) +
       '<div data-plan-checks>' + planChecksHtml(plan) + '</div>' +
       '<div class="plan-foot">' +
@@ -330,9 +453,9 @@
           '<div class="eyebrow">' + esc(T('plan.eyebrow')) + '</div>' +
           '<h2 id="plan-title">' + ui.icon('target', 16) + ' ' + esc(T('plan.title')) + '</h2>' +
           '<p>' + esc(T('plan.sub')) + '</p>' +
-        '</div>' +
+        '</div>' + planSidePickerHtml(entry) +
       '</div>' +
-      '<div data-plan-body>' + planBodyHtml(plan) + '</div>' +
+      '<div data-plan-body>' + planBodyHtml(plan, entry) + '</div>' +
     '</section>';
   }
 
@@ -516,6 +639,16 @@
     var visHandler = null;
     var alive = true;
 
+    function runSimulation() {
+      if (!entry.selectedSide || !TA.simulation) return;
+      var select = card.querySelector('[data-sim-horizon]');
+      entry.simulationHorizon = select ? Number(select.value) : Number(entry.simulationHorizon || 10);
+      entry.simulation = TA.simulation.run(entry.a, entry.plan, { horizon: entry.simulationHorizon });
+      entry.plan.simulation = entry.simulation;
+      var results = card.querySelector('[data-sim-results]');
+      if (results) results.innerHTML = simulationResultsHtml(entry);
+    }
+
     function stop() {
       alive = false;
       if (timer) { clearInterval(timer); timer = null; }
@@ -524,7 +657,7 @@
 
     function repaint() {
       var body = root.querySelector('[data-plan-body]');
-      if (body) body.innerHTML = planBodyHtml(entry.plan);
+      if (body) body.innerHTML = planBodyHtml(entry.plan, entry);
       refreshCopilotBrief(root, entry);
     }
 
@@ -544,6 +677,8 @@
       if (badge) badge.hidden = !custom;
       var reset = root.querySelector('[data-level-reset]');
       if (reset) reset.hidden = !custom;
+      var simResults = root.querySelector('[data-sim-results]');
+      if (simResults) simResults.innerHTML = simulationResultsHtml(entry);
       refreshCopilotBrief(root, entry);
     }
 
@@ -559,11 +694,13 @@
       var prev = entry.plan;
       entry.plan = TA.tradeplan.build(entry.a, {
         lang: lang(), style: style, levels: levels,
+        side: entry.selectedSide,
         price: prev.live ? prev.price : undefined,
         changePct: prev.live ? prev.changePct : undefined,
         live: prev.live,
         asOf: prev.live ? prev.asOf : undefined
       });
+      runSimulation();
       TA.store.setPlanLevels(levelKey, {
         stop: entry.plan.customStop ? entry.plan.stop : null,
         target: entry.plan.customTarget ? entry.plan.target : null
@@ -586,16 +723,41 @@
           if (entry.plan.live && q.price === entry.plan.price) return;
           entry.plan = TA.tradeplan.build(entry.a, {
             lang: lang(), style: style,
+            side: entry.selectedSide,
             price: q.price, changePct: q.changePct, live: true,
             asOf: q.asOf || Date.now(),
             levels: TA.store.getPlanLevels(levelKey)
           });
+          runSimulation();
           repaint();
         })
         .catch(function () {});
     }
 
     U.on(card, 'input', '[data-level-stop], [data-level-target]', applyLevelEdits);
+
+    U.on(card, 'click', '[data-plan-side]', function (e, btn) {
+      var side = btn.getAttribute('data-plan-side');
+      if (side !== 'long' && side !== 'short') return;
+      entry.selectedSide = side;
+      var prev = entry.plan || {};
+      entry.plan = TA.tradeplan.build(entry.a, {
+        lang: lang(), style: style, side: side,
+        price: prev.live ? prev.price : undefined,
+        changePct: prev.live ? prev.changePct : undefined,
+        live: prev.live,
+        asOf: prev.live ? prev.asOf : undefined,
+        levels: TA.store.getPlanLevels(levelKey)
+      });
+      entry.simulationHorizon = Number(entry.simulationHorizon || 10);
+      runSimulation();
+      var picker = card.querySelector('.plan-side-picker');
+      if (picker) picker.outerHTML = planSidePickerHtml(entry);
+      repaint();
+    });
+
+    U.on(card, 'click', '[data-sim-run]', runSimulation);
+    U.on(card, 'change', '[data-sim-horizon]', runSimulation);
 
     U.on(card, 'click', '[data-level-reset]', function () {
       TA.store.clearPlanLevels(levelKey);

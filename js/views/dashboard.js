@@ -24,6 +24,7 @@
           '<p class="hero-sub">' + U.esc(T('app.promise')) + '</p>' +
           '<div class="hero-actions">' +
             '<button class="btn btn-primary hero-cta" data-focus-search>' + U.esc(T('nav.analyze')) + ui.icon('arrowRight', 15) + '</button>' +
+            '<a class="btn btn-cyan" href="#/markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<button class="btn btn-cyan" data-scroll-how>' + U.esc(T('dash.hero.how')) + '</button>' +
           '</div>' +
         '</div>' +
@@ -38,29 +39,93 @@
 
   function quickCard() {
     return '<section class="card quick edge-magenta span-12" aria-labelledby="quick-title">' +
-      '<div>' +
-        '<span class="eyebrow">' + U.esc(T('dash.quick.title')) + '</span>' +
-        '<h2 id="quick-title" style="margin-top:4px">' + U.esc(T('dash.quick.lede')) + '</h2>' +
+      '<div class="quick-intro">' +
+        '<h2 id="quick-title">' + U.esc(T('dash.quick.title')) + '</h2>' +
+        '<p>' + U.esc(T('dash.quick.lede')) + '</p>' +
       '</div>' +
-      '<div class="quick-row">' +
-        '<div class="quick-input">' +
-          '<input id="quick-input" type="text" autocomplete="off" spellcheck="false" ' +
-            'aria-label="' + U.attr(T('nav.search')) + '" placeholder="' + U.attr(T('dash.quick.placeholder')) + '" />' +
+      '<form class="quick-controls" role="search" data-bing-search>' +
+        '<div class="quick-row">' +
+          '<div class="quick-input">' +
+            '<input id="quick-input" type="text" autocomplete="off" spellcheck="false" ' +
+              'aria-label="' + U.attr(T('nav.search')) + '" placeholder="' + U.attr(T('dash.quick.placeholder')) + '" />' +
+          '</div>' +
+          '<button type="submit" class="btn btn-primary" data-quick-go>' + ui.icon('search', 15) + ' ' + U.esc(T('dash.quick.button')) + '</button>' +
         '</div>' +
-        '<button class="btn btn-primary" data-quick-go>' + ui.icon('chart', 15) + ' ' + U.esc(T('dash.quick.button')) + '</button>' +
-      '</div>' +
-      '<div class="quick-row">' +
-        '<input id="quick-note" class="input" style="flex:1 1 260px;height:38px" type="text" maxlength="280" ' +
-          'aria-label="' + U.attr(T('dash.quick.idea')) + '" placeholder="' + U.attr(T('dash.quick.idea')) + '" />' +
-      '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-        '<span class="tiny muted">' + U.esc(T('dash.quick.suggested')) + '</span>' +
-        ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'].map(function (s) {
-          return '<button class="btn btn-sm" data-try="' + s + '">' + s + '</button>';
-        }).join('') +
-      '</div>' +
+        '<div class="quick-row">' +
+          '<input id="quick-note" class="input quick-idea" type="text" maxlength="280" ' +
+            'aria-label="' + U.attr(T('dash.quick.idea')) + '" placeholder="' + U.attr(T('dash.quick.idea')) + '" />' +
+        '</div>' +
+        '<div class="quick-suggested"><span class="tiny muted">' + U.esc(T('dash.quick.suggested')) + '</span>' +
+          ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'].map(function (s) {
+            return '<button type="button" class="btn btn-sm" data-try="' + s + '">' + s + '</button>';
+          }).join('') +
+        '</div>' +
+      '</form>' +
       '<div class="quick-note">' + ui.icon('info', 13) + '<span>' + U.esc(T('dash.quick.note')) + '</span></div>' +
       '</section>';
+  }
+
+  function stockDirectoryCard() {
+    return '<section class="card stock-directory span-12 edge-cyan" aria-labelledby="stock-directory-title">' +
+      '<div class="card-head stock-directory-head"><div><h2 id="stock-directory-title">' + U.esc(T('dash.stocks.title')) + '</h2>' +
+      '<p class="tiny muted">' + U.esc(T('dash.stocks.lede')) + '</p></div><span class="badge badge-sample">' + U.esc(T('dash.stocks.badge')) + '</span></div>' +
+      '<form class="stock-directory-form" data-stock-search role="search">' +
+        '<input class="input" type="search" id="stock-directory-query" minlength="2" maxlength="80" autocomplete="off" ' +
+          'placeholder="' + U.attr(T('dash.stocks.placeholder')) + '" aria-label="' + U.attr(T('dash.stocks.placeholder')) + '" required />' +
+        '<button class="btn btn-cyan" type="submit" data-stock-submit>' + ui.icon('search', 15) + ' ' + U.esc(T('dash.stocks.search')) + '</button>' +
+      '</form>' +
+      '<div class="stock-directory-status tiny muted" data-stock-status aria-live="polite">' + U.esc(T('dash.stocks.hint')) + '</div>' +
+      '<div class="stock-directory-results" data-stock-results></div>' +
+      '<p class="tiny muted stock-directory-foot">' + U.esc(T('dash.stocks.sample_note')) + '</p>' +
+    '</section>';
+  }
+
+  function forexCard() {
+    var currencies = ['USD', 'ZAR', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'CNY', 'INR', 'BRL', 'MXN', 'SGD', 'HKD', 'SEK', 'NOK', 'KRW'];
+    function options(selected) {
+      return currencies.map(function (code) {
+        return '<option value="' + code + '"' + (code === selected ? ' selected' : '') + '>' + code + '</option>';
+      }).join('');
+    }
+    return '<section class="card forex-card span-12 edge-violet" aria-labelledby="forex-title">' +
+      '<div class="card-head forex-head"><div><h2 id="forex-title">' + U.esc(T('dash.fx.title')) + '</h2>' +
+      '<p class="tiny muted">' + U.esc(T('dash.fx.lede')) + '</p></div><span class="badge badge-neutral">' + U.esc(T('dash.fx.badge')) + '</span></div>' +
+      '<form class="forex-controls" data-fx-form>' +
+        '<label class="tiny muted" for="fx-provider">' + U.esc(T('dash.fx.source')) + '</label>' +
+        '<select class="input" id="fx-provider" data-fx-provider><option value="">' + U.esc(T('dash.fx.blended')) + '</option></select>' +
+        '<label class="tiny muted" for="fx-from">' + U.esc(T('dash.fx.from')) + '</label>' +
+        '<select class="input" id="fx-from" data-fx-from>' + options('USD') + '</select>' +
+        '<span class="forex-separator" aria-hidden="true">/</span>' +
+        '<label class="tiny muted" for="fx-to">' + U.esc(T('dash.fx.to')) + '</label>' +
+        '<select class="input" id="fx-to" data-fx-to>' + options('ZAR') + '</select>' +
+        '<label class="tiny muted" for="fx-amount">' + U.esc(T('dash.fx.amount')) + '</label>' +
+        '<input class="input" id="fx-amount" data-fx-amount type="number" min="0" step="any" inputmode="decimal" value="10" aria-label="' + U.attr(T('dash.fx.amount')) + '" />' +
+        '<button class="btn btn-primary" type="submit" data-fx-submit>' + ui.icon('pulse', 15) + ' ' + U.esc(T('dash.fx.refresh')) + '</button>' +
+      '</form>' +
+      '<div class="forex-status tiny muted" data-fx-status role="status" aria-live="polite">' + U.esc(T('dash.fx.hint')) + '</div>' +
+      '<div class="forex-reading" data-fx-reading aria-live="polite"></div>' +
+      '<section class="pip-planner" aria-labelledby="pip-planner-title">' +
+        '<div class="pip-planner-head"><div><h3 id="pip-planner-title">' + U.esc(T('dash.fx.pipTitle')) + '</h3>' +
+          '<p class="tiny muted">' + U.esc(T('dash.fx.pipHelp')) + '</p></div>' +
+          '<span class="badge badge-neutral" data-pip-size>—</span></div>' +
+        '<label class="pip-side"><span>' + U.esc(T('dash.fx.pipDirection')) + '</span><select class="input" data-pip-side>' +
+          '<option value="long">' + U.esc(T('dash.fx.pipLong')) + '</option><option value="short">' + U.esc(T('dash.fx.pipShort')) + '</option>' +
+        '</select></label>' +
+        '<div class="pip-inputs">' +
+          '<label><span>' + U.esc(T('dash.fx.pipEntry')) + '</span><input class="input" type="number" min="0" step="any" inputmode="decimal" data-pip-entry /></label>' +
+          '<label><span>' + U.esc(T('dash.fx.pipStop')) + '</span><input class="input" type="number" min="0" step="any" inputmode="decimal" data-pip-stop /></label>' +
+          '<label><span>' + U.esc(T('dash.fx.pipTarget')) + '</span><input class="input" type="number" min="0" step="any" inputmode="decimal" data-pip-target /></label>' +
+        '</div>' +
+        '<div class="pip-results" aria-live="polite">' +
+          '<span>' + U.esc(T('dash.fx.pipStopDist')) + ': <b data-pip-stop-result>—</b></span>' +
+          '<span>' + U.esc(T('dash.fx.pipTargetDist')) + ': <b data-pip-target-result>—</b></span>' +
+          '<span>' + U.esc(T('dash.fx.pipRR')) + ': <b data-pip-rr-result>—</b></span>' +
+        '</div>' +
+        '<div class="tiny muted pip-status" data-pip-status aria-live="polite"></div>' +
+        '<p class="tiny muted pip-note">' + U.esc(T('dash.fx.pipUse')) + '</p>' +
+      '</section>' +
+      '<p class="tiny muted forex-foot">' + U.esc(T('dash.fx.foot')) + '</p>' +
+    '</section>';
   }
 
   function watchCard() {
@@ -178,31 +243,196 @@
   }
 
   function bindQuick(root) {
+    var form = root.querySelector('[data-bing-search]');
     var input = root.querySelector('#quick-input');
     var note = root.querySelector('#quick-note');
-    var btn = root.querySelector('[data-quick-go]');
-
-    function go() {
+    if (form && input) form.addEventListener('submit', function (e) {
+      e.preventDefault();
       var raw = (input.value || '').trim();
       if (!raw) { input.focus(); return; }
       var idea = note && note.value ? note.value.trim() : '';
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> ' + U.esc(T('dash.quick.searching'));
-      TA.data.resolveSymbol(raw).then(function (asset) {
-        btn.disabled = false;
-        btn.innerHTML = ui.icon('chart', 15) + ' ' + U.esc(T('dash.quick.button'));
-        if (!asset) { ui.toast(T('dash.quick.notfound')); return; }
-        openAsset(asset, idea);
-      });
-    }
-    btn.addEventListener('click', go);
-    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      TA.app.searchBing([raw, idea].filter(Boolean).join(' '));
+    });
     U.$$('[data-try]', root).forEach(function (b) {
       b.addEventListener('click', function () {
         var a = TA.catalog.find(b.getAttribute('data-try'));
         if (a) openAsset(a);
       });
     });
+  }
+
+  function bindStockDirectory(root) {
+    var form = root.querySelector('[data-stock-search]');
+    var input = root.querySelector('#stock-directory-query');
+    var status = root.querySelector('[data-stock-status]');
+    var results = root.querySelector('[data-stock-results]');
+    if (!form || !input || !status || !results) return;
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var query = input.value.trim();
+      if (query.length < 2) { input.focus(); return; }
+      var submit = form.querySelector('[data-stock-submit]');
+      if (submit) submit.disabled = true;
+      status.textContent = T('dash.stocks.loading');
+      results.innerHTML = '';
+      fetch('/api/stocks?q=' + encodeURIComponent(query), { headers: { accept: 'application/json' } })
+        .then(function (response) {
+          return response.json().then(function (body) {
+            if (!response.ok) throw new Error(body.error || T('dash.stocks.error'));
+            return body;
+          });
+        })
+        .then(function (body) {
+          if (!document.body.contains(root)) return;
+          var stocks = body.stocks || [];
+          status.textContent = stocks.length ? T('dash.stocks.count', { n: stocks.length, total: body.count }) : T('dash.stocks.empty');
+          results.innerHTML = stocks.map(function (stock) {
+            return '<button type="button" class="stock-directory-result" data-stock-symbol="' + U.attr(stock.symbol) + '" ' +
+              'data-stock-name="' + U.attr(stock.name) + '" data-stock-exchange="' + U.attr(stock.exchange) + '">' +
+              '<span class="mono stock-result-symbol">' + U.esc(stock.symbol) + '</span>' +
+              '<span class="stock-result-name">' + U.esc(stock.name) + '</span>' +
+              '<span class="tiny muted stock-result-exchange">' + U.esc(stock.exchange) + '</span>' +
+            '</button>';
+          }).join('');
+        })
+        .catch(function (error) {
+          if (!document.body.contains(root)) return;
+          status.textContent = error.message || T('dash.stocks.error');
+        })
+        .finally(function () { if (submit) submit.disabled = false; });
+    });
+    results.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-stock-symbol]');
+      if (!button) return;
+      TA.app.openAnalysis({
+        symbol: button.getAttribute('data-stock-symbol'),
+        name: button.getAttribute('data-stock-name'),
+        exchange: button.getAttribute('data-stock-exchange'),
+        assetClass: 'stock', currency: 'USD', barsPerYear: 252, px: 120, vol: 0.62, drift: 0.08, vol24: 1e8
+      }, { style: TA.store.settings().defaultStyle });
+    });
+  }
+
+  function bindForexRates(root) {
+    var form = root.querySelector('[data-fx-form]');
+    var from = root.querySelector('[data-fx-from]');
+    var to = root.querySelector('[data-fx-to]');
+    var provider = root.querySelector('[data-fx-provider]');
+    var status = root.querySelector('[data-fx-status]');
+    var reading = root.querySelector('[data-fx-reading]');
+    var submit = root.querySelector('[data-fx-submit]');
+    var amount = root.querySelector('[data-fx-amount]');
+    var pipEntry = root.querySelector('[data-pip-entry]');
+    var pipStop = root.querySelector('[data-pip-stop]');
+    var pipTarget = root.querySelector('[data-pip-target]');
+    var pipSide = root.querySelector('[data-pip-side]');
+    var pipSizeEl = root.querySelector('[data-pip-size]');
+    var pipStopEl = root.querySelector('[data-pip-stop-result]');
+    var pipTargetEl = root.querySelector('[data-pip-target-result]');
+    var pipRrEl = root.querySelector('[data-pip-rr-result]');
+    var pipStatus = root.querySelector('[data-pip-status]');
+    var lastQuote = null;
+    if (!form || !from || !to || !status || !reading) return;
+    function updateConvertedAmount() {
+      var output = reading.querySelector('[data-fx-converted]');
+      if (!output || !lastQuote) return;
+      var rawAmount = amount ? amount.value.trim() : '';
+      var amountValue = Number(rawAmount);
+      output.textContent = rawAmount !== '' && Number.isFinite(amountValue) && amountValue >= 0
+        ? U.fmtNum(amountValue * lastQuote.rate, lang(), 2) + ' ' + lastQuote.to
+        : '—';
+    }
+    function updatePips() {
+      var pip = to && to.value === 'JPY' ? 0.01 : 0.0001;
+      if (pipSizeEl) pipSizeEl.textContent = T('dash.fx.pipSize', { size: pip.toFixed(pip === 0.01 ? 2 : 4), code: to ? to.value : '' });
+      var entry = pipEntry && pipEntry.value !== '' ? Number(pipEntry.value) : NaN;
+      var stop = pipStop && pipStop.value !== '' ? Number(pipStop.value) : NaN;
+      var target = pipTarget && pipTarget.value !== '' ? Number(pipTarget.value) : NaN;
+      var isLong = !pipSide || pipSide.value === 'long';
+      var validStop = Number.isFinite(entry) && Number.isFinite(stop) && (isLong ? stop < entry : stop > entry);
+      var validTarget = Number.isFinite(entry) && Number.isFinite(target) && (isLong ? target > entry : target < entry);
+      var stopPips = validStop ? Math.abs(entry - stop) / pip : null;
+      var targetPips = validTarget ? Math.abs(entry - target) / pip : null;
+      if (pipStopEl) pipStopEl.textContent = stopPips == null ? '—' : U.fmtNum(stopPips, lang(), 1) + ' pips';
+      if (pipTargetEl) pipTargetEl.textContent = targetPips == null ? '—' : U.fmtNum(targetPips, lang(), 1) + ' pips';
+      if (pipRrEl) pipRrEl.textContent = stopPips > 0 && targetPips != null
+        ? U.fmtNum(targetPips / stopPips, lang(), 2) + ' : 1'
+        : '—';
+      if (pipStatus) pipStatus.textContent =
+        (Number.isFinite(stop) && Number.isFinite(entry) && !validStop) ||
+        (Number.isFinite(target) && Number.isFinite(entry) && !validTarget)
+          ? T('dash.fx.pipInvalid', { side: T(isLong ? 'dash.fx.pipLong' : 'dash.fx.pipShort') })
+          : '';
+      [pipEntry, pipStop, pipTarget].forEach(function (input) {
+        if (input) input.step = pip === 0.01 ? '0.001' : '0.00001';
+      });
+    }
+    if (amount) amount.addEventListener('input', updateConvertedAmount);
+    [pipEntry, pipStop, pipTarget, pipSide].forEach(function (input) {
+      if (input) input.addEventListener('input', updatePips);
+    });
+    if (from) from.addEventListener('change', function () {
+      lastQuote = null;
+      if (pipEntry) pipEntry.value = '';
+      if (pipStop) pipStop.value = '';
+      if (pipTarget) pipTarget.value = '';
+      updatePips();
+    });
+    if (to) to.addEventListener('change', function () {
+      lastQuote = null;
+      if (pipEntry) pipEntry.value = '';
+      if (pipStop) pipStop.value = '';
+      if (pipTarget) pipTarget.value = '';
+      updatePips();
+    });
+    updatePips();
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (from.value === to.value) { status.textContent = T('dash.fx.same'); return; }
+      if (navigator.onLine === false) { status.textContent = T('dash.fx.offline'); return; }
+      if (submit) submit.disabled = true;
+      status.textContent = T('dash.fx.loading');
+      reading.innerHTML = '';
+      TA.data.getForexRate(from.value, to.value, provider ? provider.value : '').then(function (quote) {
+        if (!document.body.contains(root)) return;
+        lastQuote = quote;
+        if (pipEntry) pipEntry.value = Number(quote.rate).toFixed(quote.to === 'JPY' ? 3 : 5);
+        updatePips();
+        var decimals = quote.rate < 1 ? 6 : 4;
+        var sourceKeys = (quote.providers || []).filter(function (p) { return !p.excluded; }).map(function (p) { return p.key; });
+        status.textContent = T('dash.fx.updated', { time: quote.refreshedAt || U.fmtTime(quote.retrievedAt, lang()), zone: quote.timezone || 'UTC' });
+        reading.innerHTML = '<div class="forex-rate-line"><span class="forex-pair mono">1 ' + U.esc(quote.from) + ' =</span>' +
+          '<strong class="num">' + U.esc(U.fmtNum(quote.rate, lang(), decimals)) + '</strong>' +
+          '<span class="forex-target mono">' + U.esc(quote.to) + '</span>' + ui.modeBadge({ dataMode: 'live' }) + '</div>' +
+          '<div class="forex-converted"><span class="tiny muted">' + U.esc(T('dash.fx.conversion')) + '</span><strong class="mono" data-fx-converted></strong></div>' +
+          '<div class="forex-bid-ask tiny muted">' + U.esc(T('dash.fx.sources', { sources: sourceKeys.length ? sourceKeys.join(', ') : T('dash.fx.sourceUnavailable') })) + '</div>' +
+          (quote.bid && quote.ask ? '<div class="forex-bid-ask tiny muted">' + U.esc(T('dash.fx.bid')) + ' ' + U.esc(U.fmtNum(quote.bid, lang(), decimals)) +
+            ' · ' + U.esc(T('dash.fx.ask')) + ' ' + U.esc(U.fmtNum(quote.ask, lang(), decimals)) + '</div>' : '');
+        updateConvertedAmount();
+      }).catch(function (error) {
+        if (!document.body.contains(root)) return;
+        status.textContent = error && error.code === 'rate' ? T('dash.fx.limit') : T('dash.fx.error');
+      }).finally(function () { if (submit) submit.disabled = false; });
+    });
+    TA.data.getForexCurrencies().then(function (currencies) {
+      if (!document.body.contains(root)) return;
+      var options = currencies.map(function (c) {
+        return '<option value="' + U.attr(c.code) + '">' + U.esc(c.code + ' — ' + c.name) + '</option>';
+      }).join('');
+      var previousFrom = from.value, previousTo = to.value;
+      from.innerHTML = options;
+      to.innerHTML = options;
+      from.value = currencies.some(function (c) { return c.code === previousFrom; }) ? previousFrom : 'USD';
+      to.value = currencies.some(function (c) { return c.code === previousTo; }) ? previousTo : 'ZAR';
+    }).catch(function () {
+      status.textContent = T('dash.fx.error');
+    });
+    if (provider) TA.data.getForexProviders().then(function (providers) {
+      if (!document.body.contains(root)) return;
+      provider.innerHTML = '<option value="">' + U.esc(T('dash.fx.blended')) + '</option>' + providers.map(function (p) {
+        return '<option value="' + U.attr(p.key) + '">' + U.esc(p.name) + '</option>';
+      }).join('');
+    }).catch(function () {});
   }
 
   function bindWatchlist(root) {
@@ -315,12 +545,14 @@
     root.innerHTML = '<div class="wrap page">' +
       heroBlock(dateLabel) +
       '<div class="dash-grid">' +
-        quickCard() + watchCard() + overviewCard() + recentsCard() + eventsCard() + howCard() + disclaimerLine() +
+        quickCard() + stockDirectoryCard() + forexCard() + watchCard() + overviewCard() + recentsCard() + eventsCard() + howCard() + disclaimerLine() +
       '</div>' +
       '<div class="tiny muted" style="text-align:center;margin-top:26px">' + U.esc(T('dash.footer')) + '</div>' +
       '</div>';
 
     bindQuick(root);
+    bindStockDirectory(root);
+    bindForexRates(root);
     bindWatchlist(root);
 
     root.addEventListener('click', function (e) {
@@ -363,6 +595,86 @@
     });
   }
 
+  function renderMarkets(root) {
+    root.innerHTML = '<div class="wrap page"><section class="hero markets-hero"><div class="hero-inner"><div class="hero-copy">' +
+      '<span class="eyebrow hero-kicker">' + U.esc(T('markets.eyebrow')) + '</span><h1>' + U.esc(T('markets.title')) + '</h1>' +
+      '<p class="hero-sub">' + U.esc(T('markets.lede')) + '</p></div></div></section>' +
+      '<div class="dash-grid">' +
+      '<section class="card span-12 edge-violet"><div class="card-head"><h2>' + U.esc(T('markets.coverage')) + '</h2></div>' +
+      '<div class="market-coverage-grid"><div><b>' + U.esc(T('markets.stocks')) + '</b><p class="tiny muted">NYSE · Nasdaq · NYSE Arca</p></div>' +
+      '<div><b>' + U.esc(T('markets.crypto')) + '</b><p class="tiny muted">' + U.esc(T('markets.cryptoDesc')) + '</p></div>' +
+      '<div><b>' + U.esc(T('markets.fx')) + '</b><p class="tiny muted">' + U.esc(T('markets.fxDesc')) + '</p></div></div></section>' +
+      stockDirectoryCard() + forexCard() +
+      '<section class="card span-12 edge-violet"><div class="card-head"><h2>' + U.esc(T('markets.currencies')) + '</h2>' +
+      '<div class="market-rate-tools"><label class="tiny muted">' + U.esc(T('dash.fx.source')) +
+      '<select class="input" data-market-provider><option value="">' + U.esc(T('dash.fx.blended')) + '</option></select></label>' +
+      '<span class="hint" data-currency-count></span></div></div><div class="market-currency-list" data-currency-list aria-live="polite">' +
+      '<span class="spinner"></span> ' + U.esc(T('markets.loading')) + '</div>' +
+      '<div class="tiny muted market-currency-detail" data-currency-detail aria-live="polite"></div></section>' +
+      '<p class="tiny muted span-12">' + U.esc(T('markets.dataNote')) + '</p></div></div>';
+    bindStockDirectory(root);
+    bindForexRates(root);
+    var marketCurrencies = [];
+    var currenciesP = TA.data.getForexCurrencies();
+    var providersP = TA.data.getForexProviders();
+    var providerSelect = root.querySelector('[data-market-provider]');
+    var currencyList = root.querySelector('[data-currency-list]');
+    var currencyDetail = root.querySelector('[data-currency-detail]');
+    if (currencyList) currencyList.addEventListener('click', function (event) {
+      var item = event.target.closest('[data-fx-currency-code]');
+      if (!item || !currencyDetail) return;
+      var code = item.getAttribute('data-fx-currency-code');
+      currencyDetail.textContent = T('markets.detailLoading', { code: code });
+      TA.data.getForexCurrency(code).then(function (detail) {
+        if (!document.body.contains(root)) return;
+        currencyDetail.innerHTML = '<b>' + U.esc(detail.name || code) + ' (' + U.esc(detail.iso_code || code) + ')</b>' +
+          (detail.symbol ? ' · ' + U.esc(detail.symbol) : '') +
+          (detail.providers && detail.providers.length ? '<br>' + U.esc(T('markets.detailProviders', { providers: detail.providers.join(', ') })) : '') +
+          (detail.start_date || detail.end_date ? '<br>' + U.esc(T('markets.detailDates', { from: detail.start_date || '—', to: detail.end_date || '—' })) : '');
+      }).catch(function () {
+        currencyDetail.textContent = T('markets.currencyError');
+      });
+    });
+    function renderRates(provider) {
+      return TA.data.getForexRates('USD', null, provider).then(function (rates) {
+      if (!document.body.contains(root)) return;
+      var currencies = marketCurrencies;
+      var list = root.querySelector('[data-currency-list]');
+      var count = root.querySelector('[data-currency-count]');
+      if (count) count.textContent = T('markets.rateCount', { n: rates.length, total: currencies.length });
+      var byQuote = {};
+      rates.forEach(function (rate) { byQuote[rate.quote] = rate; });
+      if (list) list.innerHTML = currencies.map(function (c) {
+        var rate = byQuote[c.code];
+        var value = rate ? '1 USD = ' + U.fmtNum(rate.rate, lang(), rate.rate < 1 ? 6 : 4) + ' ' + c.code : T('markets.rateUnavailable');
+        var sources = rate && rate.providers ? rate.providers.filter(function (p) { return !p.excluded; }).map(function (p) { return p.key; }) : [];
+        return '<button type="button" class="market-currency" data-fx-currency-code="' + U.attr(c.code) + '"><b class="mono">' + U.esc(c.code) + '</b><small>' + U.esc(c.name) + '</small>' +
+          '<span class="market-currency-rate mono">' + U.esc(value) + '</span>' +
+          '<small>' + U.esc(T('dash.fx.sources', { sources: sources.length ? sources.join(', ') : T('dash.fx.sourceUnavailable') })) + '</small>' +
+          (rate ? '<small>' + U.esc(T('markets.rateDate', { date: rate.date })) + '</small>' : '') + '</button>';
+      }).join('');
+      }).catch(function () {
+        var list = root.querySelector('[data-currency-list]');
+        if (list) list.textContent = T('markets.currencyError');
+      });
+    }
+    currenciesP.then(function (currencies) {
+      if (!document.body.contains(root)) return;
+      marketCurrencies = currencies;
+      renderRates(providerSelect ? providerSelect.value : '');
+    }).catch(function () {
+      var list = root.querySelector('[data-currency-list]');
+      if (list) list.textContent = T('markets.currencyError');
+    });
+    providersP.then(function (providers) {
+      if (!providerSelect || !document.body.contains(root)) return;
+      providerSelect.innerHTML = '<option value="">' + U.esc(T('dash.fx.blended')) + '</option>' + providers.map(function (p) {
+        return '<option value="' + U.attr(p.key) + '">' + U.esc(p.name) + '</option>';
+      }).join('');
+    }).catch(function () {});
+    if (providerSelect) providerSelect.addEventListener('change', function () { renderRates(providerSelect.value); });
+  }
+
   TA.views = TA.views || {};
-  TA.views.dashboard = { render: render };
+  TA.views.dashboard = { render: render, renderMarkets: renderMarkets };
 })(window.TA = window.TA || {});

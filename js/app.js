@@ -7,6 +7,7 @@
 
   var appRoot = document.getElementById('app');
   var shellMounted = false;
+  var clockTimer = null;
 
   function brandMark() {
     return '<span class="brand-mark">' +
@@ -15,6 +16,103 @@
         '<path d="M12 2.4 21 7.4v9.2L12 21.6 3 16.6V7.4Z" stroke="#ff2fd0" stroke-width="1.5"/>' +
         '<path d="M3 7.4 12 12.4l9-5" stroke="#29e0ff" stroke-width="1.5"/>' +
         '<path d="M12 12.4v9.2" stroke="#29e0ff" stroke-width="1.5"/></svg></span>';
+  }
+
+  function initialsFor(user) {
+    var name = String((user && user.name) || '').trim();
+    var source = name || String((user && user.email) || '?').split('@')[0];
+    var parts = source.split(/[\s._-]+/).filter(Boolean);
+    var letters = parts.slice(0, 2).map(function (p) { return p.charAt(0); }).join('');
+    return (letters || '?').toUpperCase();
+  }
+
+  function profileTriggerHtml() {
+    var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
+    return '<summary class="profile-trigger" aria-label="' + U.attr(T('profile.menu')) + '">' +
+        '<span class="profile-avatar" aria-hidden="true">' +
+          (user ? U.esc(initialsFor(user)) : ui.icon('user', 17)) +
+        '</span>' +
+        '<span class="profile-trigger-label">' + U.esc(T('profile.menu')) + '</span>' +
+      '</summary>';
+  }
+
+  function alertRelative(at, now, rtf) {
+    var diff = at.getTime() - now.getTime();
+    var abs = Math.abs(diff);
+    if (abs < 3600000) return rtf.format(Math.max(1, Math.round(diff / 60000)), 'minute');
+    if (abs < 86400000) return rtf.format(Math.max(1, Math.round(diff / 3600000)), 'hour');
+    return rtf.format(Math.round(diff / 86400000), 'day');
+  }
+
+  function alertEventTime(at) {
+    try {
+      return new Intl.DateTimeFormat(TA.i18n.get(), {
+        timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+      }).format(at);
+    } catch (e) {
+      return at.toISOString();
+    }
+  }
+
+  function alertsRowHtml(labelKey, state, enabled, now, rtf) {
+    var statusKey = !enabled ? 'alerts.panel.off' : state.open ? 'alerts.panel.open' : 'alerts.panel.closed';
+    var detail = enabled
+      ? T(state.next.type === 'close' ? 'alerts.panel.closesIn' : 'alerts.panel.opensIn',
+          { when: alertRelative(state.next.at, now, rtf) })
+      : '';
+    return '<li class="alerts-row' + (enabled && state.open ? ' is-open' : '') + '">' +
+        '<span class="alerts-row-label">' + U.esc(T(labelKey)) + '</span>' +
+        '<span class="alerts-row-status">' + U.esc(T(statusKey)) + '</span>' +
+        (enabled ? '<span class="alerts-row-time">' + U.esc(alertEventTime(state.next.at)) + '</span>' : '') +
+        (detail ? '<span class="alerts-row-detail">' + U.esc(detail) + '</span>' : '') +
+      '</li>';
+  }
+
+  function alertsPopoverHtml() {
+    if (!TA.marketNotifications || !TA.marketNotifications.status) return '';
+    var s = TA.marketNotifications.status();
+    var now = s.at instanceof Date ? s.at : new Date();
+    var rtf;
+    try { rtf = new Intl.RelativeTimeFormat(TA.i18n.get(), { numeric: 'auto', style: 'short' }); }
+    catch (e) { rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' }); }
+    var note = !s.enabled ? 'alerts.panel.pausedNote'
+      : s.permission === 'denied' || s.permission === 'unsupported' ? 'alerts.panel.blocked'
+      : 'alerts.panel.note';
+    var actions = s.enabled
+      ? (s.permission === 'default'
+          ? '<button class="btn btn-sm" type="button" data-alerts-permission>' + U.esc(T('alerts.panel.allow')) + '</button>'
+          : '') +
+        '<button class="btn btn-sm" type="button" data-alerts-toggle>' + U.esc(T('alerts.pause')) + '</button>'
+      : '<button class="btn btn-sm btn-primary" type="button" data-alerts-toggle>' + U.esc(T('alerts.enable')) + '</button>';
+    actions += '<a class="btn btn-sm" href="#/settings" data-alerts-settings>' + U.esc(T('alerts.panel.settings')) + '</a>';
+    return '<div class="alerts-popover-head">' +
+        '<b>' + U.esc(T('alerts.panel.title')) + '</b>' +
+        '<span class="alerts-badge">' + U.esc(T(s.enabled ? 'alerts.panel.on' : 'alerts.panel.paused')) + '</span>' +
+      '</div>' +
+      '<ul class="alerts-rows">' +
+        alertsRowHtml('alerts.panel.stocks', s.stocks, s.stocksEnabled, now, rtf) +
+        alertsRowHtml('alerts.panel.forex', s.forex, s.forexEnabled, now, rtf) +
+      '</ul>' +
+      '<p class="alerts-note">' + U.esc(T(note)) + '</p>' +
+      '<div class="alerts-actions">' + actions + '</div>';
+  }
+
+  function alertsTriggerHtml() {
+    var label = T('alerts.panel.title');
+    return '<summary class="alerts-trigger" aria-label="' + U.attr(label) + '" title="' + U.attr(label) + '">' +
+        ui.icon('bell', 17) +
+        '<span class="alerts-dot" aria-hidden="true"></span>' +
+      '</summary>';
+  }
+
+  function setAlertsTriggerState() {
+    var menu = appRoot.querySelector('[data-alerts-menu]');
+    if (!menu) return;
+    var enabled = TA.marketNotifications && TA.marketNotifications.status
+      ? TA.marketNotifications.status().enabled
+      : false;
+    menu.setAttribute('data-active', enabled ? 'true' : 'false');
   }
 
   function shellHtml() {
@@ -27,50 +125,201 @@
           '</a>' +
           '<nav class="appnav">' +
             '<a href="#/" data-nav="dashboard">' + U.esc(T('nav.dashboard')) + '</a>' +
+            '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
           '</nav>' +
-          '<div class="header-search">' +
+          '<form class="header-search" role="search" data-bing-search>' +
             '<span class="search-ico">' + ui.icon('search', 16) + '</span>' +
-            '<input id="global-search" type="text" role="combobox" aria-expanded="false" ' +
-              'aria-controls="search-panel" aria-autocomplete="list" autocomplete="off" spellcheck="false" ' +
+            '<input id="global-search" type="search" autocomplete="off" spellcheck="false" ' +
               'placeholder="' + U.attr(T('nav.search')) + '" aria-label="' + U.attr(T('nav.search')) + '" />' +
-            '<span class="kbd" aria-hidden="true">/</span>' +
-            '<div class="search-results" id="search-panel" role="listbox" aria-label="' + U.attr(T('nav.search_short')) + '" hidden></div>' +
-          '</div>' +
+            '<button type="submit" class="search-submit" aria-label="' + U.attr(T('nav.search_bing')) + '" title="' + U.attr(T('nav.search_bing')) + '">' +
+              ui.icon('search', 15) + '</button>' +
+          '</form>' +
           '<div class="header-actions">' +
+            '<time class="site-clock" data-site-clock aria-label="Current local date and time" aria-live="off">' +
+              '<span class="site-clock-icon" aria-hidden="true">' + ui.icon('clock', 15) + '</span>' +
+              '<span class="site-clock-copy"><span data-clock-date></span><span class="site-clock-time" data-clock-time></span></span>' +
+            '</time>' +
             '<button class="btn btn-sm btn-ghost legal-pill" data-open-legal aria-label="' + U.attr(T('nav.info_full')) + '">' +
               ui.icon('info', 14) + '<span class="label">' + U.esc(T('nav.info')) + '</span></button>' +
             '<a class="icon-btn only-narrow" href="#/settings" aria-label="' + U.attr(T('nav.open_settings')) + '" title="' + U.attr(T('nav.open_settings')) + '">' +
               ui.icon('settings', 17) + '</a>' +
-            '<button class="btn btn-sm btn-primary nav-cta" data-focus-search aria-label="' + U.attr(T('nav.analyze')) + '">' +
-              ui.icon('search', 14) + '<span>' + U.esc(T('nav.analyze')) + '</span></button>' +
+            '<button class="btn btn-sm btn-primary nav-cta" data-focus-search aria-label="' + U.attr(T('nav.search_bing')) + '">' +
+              ui.icon('search', 14) + '<span>' + U.esc(T('nav.search_bing')) + '</span></button>' +
+            '<details class="alerts-menu" data-alerts-menu>' +
+              alertsTriggerHtml() +
+              '<div class="alerts-popover" data-alerts-popover>' + alertsPopoverHtml() + '</div>' +
+            '</details>' +
+            '<details class="profile-menu" data-profile-menu>' +
+              profileTriggerHtml() +
+              '<div class="profile-popover" data-profile-popover>' + profilePopoverHtml() + '</div>' +
+            '</details>' +
           '</div>' +
         '</div>' +
       '</header>' +
       '<main id="main" tabindex="-1"></main>';
   }
 
-  function freeLookup(raw) {
-    ui.toast(T('dash.quick.searching'));
-    TA.data.resolveSymbol(raw).then(function (asset) {
-      if (asset) openAnalysis(asset);
-      else ui.toast(T('dash.quick.notfound'));
-    }).catch(function () {
-      ui.toast(T('dash.quick.notfound'));
+  function profilePopoverHtml() {
+    var settings = TA.store.settings();
+    var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
+    var markets = (settings.markets || []).map(function (market) { return T('ob.market.' + market); }).join(', ') || T('common.none');
+    var amount = Number(settings.accountSize);
+    var accountSize = isFinite(amount)
+      ? new Intl.NumberFormat(TA.i18n.get(), { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
+      : '—';
+    var memberSince = '';
+    if (user && user.createdAt) {
+      try {
+        memberSince = new Intl.DateTimeFormat(TA.i18n.get(), { year: 'numeric', month: 'short', day: 'numeric' })
+          .format(new Date(user.createdAt));
+      } catch (e) { memberSince = ''; }
+    }
+    var head = user
+      ? '<div class="profile-popover-head">' +
+          '<div class="profile-identity">' +
+            '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + U.esc(initialsFor(user)) + '</span>' +
+            '<div class="profile-identity-copy">' +
+              '<span class="profile-head-kicker">' + U.esc(T('set.account.signed_in')) + '</span>' +
+              '<b>' + U.esc(user.name || T('profile.local')) + '</b>' +
+              '<small>' + U.esc(user.email) + '</small>' +
+            '</div>' +
+          '</div>' +
+          '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
+        '</div>'
+      : '<div class="profile-popover-head">' +
+          '<div class="profile-identity">' +
+            '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + ui.icon('user', 18) + '</span>' +
+            '<div class="profile-identity-copy">' +
+              '<span class="profile-head-kicker">' + U.esc(T('profile.menu')) + '</span>' +
+              '<b>' + U.esc(T('profile.local')) + '</b>' +
+              '<small>' + U.esc(T('profile.noLogin')) + '</small>' +
+            '</div>' +
+          '</div>' +
+          '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
+        '</div>';
+    var actions = user
+      ? '<div class="profile-actions">' +
+          '<a class="btn btn-sm" href="#/settings">' + ui.icon('settings', 14) + ' ' + U.esc(T('profile.settings')) + '</a>' +
+          '<button class="btn btn-sm" type="button" data-profile-signout>' + U.esc(T('set.signout')) + '</button>' +
+        '</div>'
+      : '<div class="profile-actions">' +
+          '<button class="btn btn-sm btn-primary" type="button" data-profile-auth="signin">' + U.esc(T('auth.signin')) + '</button>' +
+          '<button class="btn btn-sm" type="button" data-profile-auth="signup">' + U.esc(T('auth.create')) + '</button>' +
+        '</div>';
+    return head +
+      '<dl class="profile-details">' +
+        '<div><dt>' + U.esc(T('profile.experience')) + '</dt><dd>' + U.esc(T('ob.exp.' + settings.experience)) + '</dd></div>' +
+        '<div><dt>' + U.esc(T('profile.markets')) + '</dt><dd>' + U.esc(markets) + '</dd></div>' +
+        '<div><dt>' + U.esc(T('profile.horizon')) + '</dt><dd>' + U.esc(T('ob.horizon.' + settings.horizon)) + '</dd></div>' +
+        '<div><dt>' + U.esc(T('profile.accountSize')) + '</dt><dd>' + U.esc(accountSize) + '</dd></div>' +
+        '<div><dt>' + U.esc(T('profile.riskTrade')) + '</dt><dd>' + U.esc(U.fmtPct(Number(settings.riskPct) || 0, { sign: false })) + '</dd></div>' +
+        (memberSince ? '<div><dt>' + U.esc(T('profile.memberSince')) + '</dt><dd>' + U.esc(memberSince) + '</dd></div>' : '') +
+      '</dl>' +
+      '<p class="profile-local-note">' + U.esc(T(user ? 'profile.accountNote' : 'profile.localNote')) + '</p>' +
+      actions;
+  }
+
+  function openAccount(mode) {
+    if (TA.views.settings && typeof TA.views.settings.openAccount === 'function') {
+      TA.views.settings.openAccount(mode || 'signin');
+      return;
+    }
+    location.hash = '#/settings';
+  }
+
+  function bindProfileMenu() {
+    var menu = appRoot.querySelector('[data-profile-menu]');
+    var popover = menu && menu.querySelector('[data-profile-popover]');
+    if (!menu || !popover) return;
+    menu.addEventListener('toggle', function () {
+      if (menu.open) {
+        popover.innerHTML = profilePopoverHtml();
+        var triggerAvatar = menu.querySelector('.profile-trigger .profile-avatar');
+        var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
+        if (triggerAvatar) triggerAvatar.innerHTML = user ? U.esc(initialsFor(user)) : ui.icon('user', 17);
+      }
     });
+    menu.addEventListener('click', function (e) {
+      if (e.target.closest('[data-profile-signout]')) {
+        menu.open = false;
+        TA.auth.signOut();
+        TA.store.clearSecrets();
+        ui.toast(T('profile.signedOut'));
+        TA.app.refresh({ keepScroll: true });
+        return;
+      }
+      var authButton = e.target.closest('[data-profile-auth]');
+      if (authButton) {
+        menu.open = false;
+        openAccount(authButton.getAttribute('data-profile-auth'));
+        return;
+      }
+      if (e.target.closest('.profile-actions a')) menu.open = false;
+    });
+  }
+
+  function bindAlertsMenu() {
+    var menu = appRoot.querySelector('[data-alerts-menu]');
+    var popover = menu && menu.querySelector('[data-alerts-popover]');
+    if (!menu || !popover || !TA.marketNotifications) return;
+    function refresh() {
+      popover.innerHTML = alertsPopoverHtml();
+      setAlertsTriggerState();
+    }
+    menu.addEventListener('toggle', function () {
+      if (menu.open) refresh();
+    });
+    menu.addEventListener('click', function (e) {
+      var toggle = e.target.closest('[data-alerts-toggle]');
+      if (toggle) {
+        e.preventDefault();
+        var wasOn = TA.marketNotifications.status().enabled;
+        toggle.disabled = true;
+        Promise.resolve(wasOn ? TA.marketNotifications.disable() : TA.marketNotifications.enable())
+          .then(function () {
+            ui.toast(T(wasOn ? 'alerts.paused.toast' : 'alerts.status.enabled'));
+            refresh();
+          });
+        return;
+      }
+      if (e.target.closest('[data-alerts-permission]')) {
+        e.preventDefault();
+        TA.marketNotifications.enable().then(function (permission) {
+          ui.toast(T(permission === 'granted' ? 'alerts.status.enabled' : 'alerts.panel.blocked'));
+          refresh();
+        });
+        return;
+      }
+      if (e.target.closest('[data-alerts-settings]')) menu.open = false;
+    });
+  }
+
+  function searchBing(query) {
+    var q = String(query || '').trim();
+    if (!q) return false;
+    window.open('https://www.bing.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener,noreferrer');
+    return true;
   }
 
   function mountShell() {
     appRoot.innerHTML = shellHtml();
     shellMounted = true;
     document.documentElement.lang = TA.i18n.get();
+    mountClock();
+    bindProfileMenu();
+    bindAlertsMenu();
+    setAlertsTriggerState();
 
+    var searchForm = appRoot.querySelector('[data-bing-search]');
     var input = document.getElementById('global-search');
-    var panel = document.getElementById('search-panel');
-    if (input && panel) {
-      ui.attachSearch(input, panel, {
-        onPick: function (asset) { openAnalysis(asset); },
-        onFreeLookup: freeLookup
+    if (searchForm && input) {
+      searchForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var q = input.value.trim();
+        if (!q) { input.focus(); return; }
+        searchBing(q);
+        input.value = '';
       });
     }
     var legal = appRoot.querySelector('.appbar [data-open-legal]');
@@ -88,8 +337,32 @@
     });
   }
 
+  function mountClock() {
+    if (clockTimer) window.clearInterval(clockTimer);
+    var clock = appRoot.querySelector('[data-site-clock]');
+    if (!clock) return;
+    var dateNode = clock.querySelector('[data-clock-date]');
+    var timeNode = clock.querySelector('[data-clock-time]');
+    function update() {
+      var now = new Date();
+      var locale = TA.i18n.get();
+      var date = new Intl.DateTimeFormat(locale, {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
+      }).format(now);
+      var time = new Intl.DateTimeFormat(locale, {
+        hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+      }).format(now);
+      dateNode.textContent = date;
+      timeNode.textContent = time;
+      clock.dateTime = now.toISOString();
+      clock.setAttribute('aria-label', date + ', ' + time);
+    }
+    update();
+    clockTimer = window.setInterval(update, 15000);
+  }
+
   function markNav(routeName) {
-    var target = routeName === 'settings' ? 'settings' : 'dashboard';
+    var target = routeName === 'settings' ? 'settings' : routeName === 'markets' ? 'markets' : 'dashboard';
     U.$$('.appnav a[data-nav]', document).forEach(function (a) {
       if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -111,6 +384,7 @@
       });
     }
     if (path === '/settings') return { name: 'settings', params: params };
+    if (path === '/markets') return { name: 'markets', params: params };
     var m = path.match(/^\/analysis\/(.+)$/);
     if (m) {
       params.symbol = decodeURIComponent(m[1]);
@@ -122,10 +396,19 @@
   function titleFor(route) {
     if (route.name === 'analysis') return (route.params.symbol || T('an.crumb')) + ' · ' + T('app.name');
     if (route.name === 'settings') return T('set.title') + ' · ' + T('app.name');
+    if (route.name === 'markets') return T('nav.markets') + ' · ' + T('app.name');
     return T('app.name') + ' — ' + T('app.promise');
   }
 
+  function showAuth() {
+    if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null; }
+    shellMounted = false;
+    appRoot.innerHTML = '';
+    TA.auth.mount(appRoot);
+  }
+
   function showOnboarding() {
+    if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null; }
     shellMounted = false;
     appRoot.innerHTML = '';
     document.documentElement.lang = TA.i18n.get();
@@ -134,6 +417,7 @@
   }
 
   function renderRoute(keepScroll) {
+    if (!TA.auth || !TA.auth.session || !TA.auth.session()) { showAuth(); return; }
     if (!TA.store.settings().onboarded) { showOnboarding(); return; }
     if (!shellMounted || !document.getElementById('main')) mountShell();
 
@@ -144,6 +428,7 @@
 
     if (route.name === 'analysis') TA.views.analysis.render(main, route.params);
     else if (route.name === 'settings') TA.views.settings.render(main);
+    else if (route.name === 'markets') TA.views.dashboard.renderMarkets(main);
     else TA.views.dashboard.render(main);
 
     document.title = titleFor(route);
@@ -157,6 +442,7 @@
       q += '&cls=' + encodeURIComponent(asset.assetClass || 'crypto');
       if (asset.coingeckoId) q += '&id=' + encodeURIComponent(asset.coingeckoId);
       q += '&name=' + encodeURIComponent(asset.name || asset.symbol);
+      if (asset.assetClass === 'stock' && asset.exchange) q += '&exchange=' + encodeURIComponent(asset.exchange);
     }
     return '#/analysis/' + encodeURIComponent(asset.symbol) + '?' + q;
   }
@@ -192,14 +478,26 @@
     },
     refresh: refresh,
     rerender: function () { refresh({ keepScroll: true }); },
-    setLanguage: setLanguage
+    setLanguage: setLanguage,
+    searchBing: searchBing
   };
 
   function boot() {
     TA.i18n.set(TA.store.settings().language);
     ui.initGlossary();
+    if (TA.marketNotifications) TA.marketNotifications.start();
 
     document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        ['[data-profile-menu]', '[data-alerts-menu]'].forEach(function (selector) {
+          var menu = appRoot.querySelector(selector);
+          if (menu && menu.open) {
+            menu.open = false;
+            var trigger = menu.querySelector('summary');
+            if (trigger) trigger.focus();
+          }
+        });
+      }
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
       var t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
@@ -208,6 +506,12 @@
     });
 
     window.addEventListener('hashchange', function () { renderRoute(false); });
+    document.addEventListener('click', function (e) {
+      ['[data-profile-menu]', '[data-alerts-menu]'].forEach(function (selector) {
+        var menu = appRoot.querySelector(selector);
+        if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
+      });
+    });
     renderRoute(false);
   }
 

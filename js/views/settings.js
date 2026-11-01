@@ -30,6 +30,23 @@
       '</div>';
   }
 
+  function profileAccountSection() {
+    var user = TA.auth && TA.auth.current ? TA.auth.current() : null;
+    var identity = user
+      ? '<b>' + U.esc(user.name) + '</b><span>' + U.esc(user.email) + '</span>'
+      : '<b>' + U.esc(T('profile.local')) + '</b><span>' + U.esc(T('profile.noLogin')) + '</span>';
+    var actions = user
+      ? '<button type="button" class="btn btn-sm" data-profile-signout>' + U.esc(T('set.signout')) + '</button>'
+      : '<button type="button" class="btn btn-sm btn-primary" data-profile-auth="signin">' + U.esc(T('auth.signin')) + '</button>' +
+        '<button type="button" class="btn btn-sm" data-profile-auth="signup">' + U.esc(T('auth.create')) + '</button>';
+    return '<div class="profile-account-section">' +
+      '<div class="profile-account-copy"><span class="eyebrow">' + U.esc(T('profile.accountTitle')) + '</span>' +
+        '<div class="profile-account-identity">' + identity + '</div>' +
+        '<p class="help">' + U.esc(T('profile.accountNote')) + '</p></div>' +
+      '<div class="profile-account-actions">' + actions + '</div>' +
+      '</div>';
+  }
+
   function profileCard(s) {
     return '<section class="card span-12" aria-labelledby="set-profile">' +
       '<div class="card-head"><h2 id="set-profile">' + U.esc(T('set.profile')) + '</h2>' +
@@ -58,6 +75,7 @@
               }).join('') +
             '</select><div class="help">' + U.esc(T('set.language.note')) + '</div></div>' +
         '</div>' +
+        profileAccountSection() +
       '</div>' +
       '</section>';
   }
@@ -85,6 +103,31 @@
           '<div class="help">' + U.esc(T('set.av.help')) + '</div>' +
           '<div class="help" data-av-status role="status" aria-live="polite"></div>' +
         '</div>' +
+      '</div>' +
+      '</section>';
+  }
+
+  function alertsCard(s) {
+    var permission = TA.marketNotifications ? TA.marketNotifications.permission() : 'unsupported';
+    var statusKey = !s.marketAlertsEnabled ? 'alerts.status.off'
+      : permission === 'granted' ? 'alerts.status.granted'
+      : permission === 'denied' ? 'alerts.status.blocked'
+      : permission === 'unsupported' ? 'alerts.status.unsupported'
+      : 'alerts.status.inApp';
+    return '<section class="card span-12 market-alerts-card" aria-labelledby="set-market-alerts">' +
+      '<div class="card-head"><h2 id="set-market-alerts">' + ui.icon('clock', 15) + U.esc(T('alerts.title')) + '</h2></div>' +
+      '<div class="card-body">' +
+        '<p class="small muted">' + U.esc(T('alerts.description')) + '</p>' +
+        '<div class="market-alert-options">' +
+          '<label class="market-alert-option"><input type="checkbox" data-market-alert="marketStockAlerts"' + (s.marketStockAlerts !== false ? ' checked' : '') + ' />' +
+            '<span><b>' + U.esc(T('alerts.stocks')) + '</b><small>' + U.esc(T('alerts.stocks.hours')) + '</small></span></label>' +
+          '<label class="market-alert-option"><input type="checkbox" data-market-alert="marketForexAlerts"' + (s.marketForexAlerts !== false ? ' checked' : '') + ' />' +
+            '<span><b>' + U.esc(T('alerts.forex')) + '</b><small>' + U.esc(T('alerts.forex.hours')) + '</small></span></label>' +
+        '</div>' +
+        '<p class="help market-alert-note">' + U.esc(T('alerts.note')) + '</p>' +
+        '<div class="market-alert-controls"><button type="button" class="btn btn-primary" data-market-alert-toggle>' +
+          U.esc(T(s.marketAlertsEnabled ? 'alerts.pause' : 'alerts.enable')) + '</button>' +
+          '<span class="help" data-market-alert-status role="status" aria-live="polite">' + U.esc(T(statusKey)) + '</span></div>' +
       '</div>' +
       '</section>';
   }
@@ -156,6 +199,59 @@
     ui.toast(T('set.exported'));
   }
 
+  function openProfileAuth(mode) {
+    var signup = mode === 'signup';
+    var nameField = signup
+      ? '<div class="field auth-field"><label for="profile-auth-name">' + U.esc(T('auth.name')) + '</label><input id="profile-auth-name" class="input" type="text" maxlength="80" autocomplete="name" required /></div>'
+      : '';
+    var body = '<form class="auth-form" data-profile-auth-form novalidate>' + nameField +
+      '<div class="field auth-field"><label for="profile-auth-email">' + U.esc(T('auth.email')) + '</label><input id="profile-auth-email" class="input" type="email" autocomplete="username" required /></div>' +
+      '<div class="field auth-field"><label for="profile-auth-password">' + U.esc(T('auth.password')) + '</label><input id="profile-auth-password" class="input" type="password" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required /></div>' +
+      (signup ? '<div class="field auth-field"><label for="profile-auth-confirm">' + U.esc(T('auth.confirm')) + '</label><input id="profile-auth-confirm" class="input" type="password" autocomplete="new-password" required /></div>' : '') +
+      '<div class="auth-error" data-profile-auth-error role="alert" aria-live="assertive"></div>' +
+      '<button class="btn btn-primary auth-submit" type="submit" data-profile-auth-submit>' + U.esc(T(signup ? 'auth.create' : 'auth.signin')) + '</button>' +
+      '<button class="auth-switch" type="button" data-profile-auth-switch>' + U.esc(T(signup ? 'auth.have_account' : 'auth.no_account')) + '</button>' +
+      '</form><p class="auth-note">' + U.esc(T('auth.note')) + '</p>';
+    var closeModal = ui.openModal({ title: T(signup ? 'auth.signup_title' : 'auth.title'), body: body });
+    var modalRoot = document.getElementById('modal-root');
+    var form = modalRoot.querySelector('[data-profile-auth-form]');
+    var switchBtn = modalRoot.querySelector('[data-profile-auth-switch]');
+    if (switchBtn) switchBtn.addEventListener('click', function () {
+      closeModal();
+      openProfileAuth(signup ? 'signin' : 'signup');
+    });
+    if (form) form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = modalRoot.querySelector('#profile-auth-email');
+      var password = modalRoot.querySelector('#profile-auth-password');
+      var name = modalRoot.querySelector('#profile-auth-name');
+      var confirm = modalRoot.querySelector('#profile-auth-confirm');
+      var submit = modalRoot.querySelector('[data-profile-auth-submit]');
+      var error = modalRoot.querySelector('[data-profile-auth-error]');
+      if (error) { error.textContent = ''; error.classList.remove('is-on'); }
+      if (submit) { submit.disabled = true; submit.textContent = T('auth.working'); }
+      var request = signup
+        ? TA.auth.signUp({ name: name ? name.value : '', email: email.value, password: password.value, confirm: confirm ? confirm.value : '' })
+        : TA.auth.signIn({ email: email.value, password: password.value });
+      request.then(function (result) {
+        if (result.ok) {
+          closeModal();
+          ui.toast(T(signup ? 'profile.created' : 'profile.signedIn'));
+          TA.app.refresh({ keepScroll: true });
+          return;
+        }
+        if (submit) { submit.disabled = false; submit.textContent = T(signup ? 'auth.create' : 'auth.signin'); }
+        if (error) {
+          error.textContent = T(result.error, result.waitMs ? { s: Math.ceil(result.waitMs / 1000) } : {});
+          error.classList.add('is-on');
+        }
+      }).catch(function () {
+        if (submit) { submit.disabled = false; submit.textContent = T(signup ? 'auth.create' : 'auth.signin'); }
+        if (error) { error.textContent = T('auth.error.failed'); error.classList.add('is-on'); }
+      });
+    });
+  }
+
   function bind(root) {
     U.$$('.chip[data-group]', root).forEach(function (b) {
       b.addEventListener('click', function () {
@@ -196,6 +292,37 @@
       TA.store.updateSettings({ dataMode: modeSel.value });
       TA.data.clearCache();
       ui.toast(T('common.saved'));
+    });
+
+    U.$$('.market-alert-option input[data-market-alert]', root).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var patch = {};
+        patch[input.getAttribute('data-market-alert')] = input.checked;
+        TA.store.updateSettings(patch);
+      });
+    });
+
+    var alertToggle = root.querySelector('[data-market-alert-toggle]');
+    var alertStatus = root.querySelector('[data-market-alert-status]');
+    if (alertToggle) alertToggle.addEventListener('click', function () {
+      var active = TA.store.settings().marketAlertsEnabled;
+      if (active) {
+        TA.store.updateSettings({ marketAlertsEnabled: false });
+        alertToggle.textContent = T('alerts.enable');
+        if (alertStatus) alertStatus.textContent = T('alerts.status.off');
+        return;
+      }
+      alertToggle.disabled = true;
+      TA.marketNotifications.enable().then(function (permission) {
+        alertToggle.disabled = false;
+        alertToggle.textContent = T('alerts.pause');
+        var status = permission === 'granted' ? 'alerts.status.granted'
+          : permission === 'denied' ? 'alerts.status.blocked'
+          : permission === 'unsupported' ? 'alerts.status.unsupported'
+          : 'alerts.status.inApp';
+        if (alertStatus) alertStatus.textContent = T(status);
+        ui.toast(T('alerts.status.enabled'));
+      });
     });
 
     var avInput = root.querySelector('#set-av');
@@ -269,6 +396,14 @@
     root.addEventListener('click', function (e) {
       if (e.target.closest('[data-open-legal]')) { e.preventDefault(); ui.legalModal(); }
       if (e.target.closest('[data-open-glossary]')) { e.preventDefault(); ui.glossaryModal(); }
+      var authButton = e.target.closest('[data-profile-auth]');
+      if (authButton) openProfileAuth(authButton.getAttribute('data-profile-auth'));
+      if (e.target.closest('[data-profile-signout]')) {
+        TA.auth.signOut();
+        TA.store.clearSecrets();
+        ui.toast(T('profile.signedOut'));
+        TA.app.refresh({ keepScroll: true });
+      }
     });
   }
 
@@ -292,7 +427,7 @@
         '</div>' +
       '</div>' +
       '<div class="dash-grid">' +
-        profileCard(s) + dataCard(s) + feedbackCard() + aboutCard() + clearCard() +
+        profileCard(s) + alertsCard(s) + dataCard(s) + feedbackCard() + aboutCard() + clearCard() +
       '</div>' +
       '<div class="tiny muted" style="text-align:center;margin-top:26px">' + U.esc(T('dash.footer')) + '</div>' +
       '</div>';
@@ -301,5 +436,5 @@
   }
 
   TA.views = TA.views || {};
-  TA.views.settings = { render: render };
+  TA.views.settings = { render: render, openAccount: openProfileAuth };
 })(window.TA = window.TA || {});

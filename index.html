@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TIKO — Understand the setup</title>
-  <meta name="description" content="Evidence-first market analysis for stocks and crypto. Understand the setup, the evidence, and the risks — at a glance. Informational only, not financial advice." />
+  <title>TIKO — Your Trade Plan</title>
+  <meta name="description" content="Get actionable, conditional trading guidance with entry levels, stop loss, take profit, risk sizing and clear next steps." />
   <link rel="canonical" href="https://tiko.app/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="TIKO" />
-  <meta property="og:title" content="TIKO — Understand the setup" />
-  <meta property="og:description" content="Evidence-first market analysis for stocks and crypto. Understand the setup, the evidence, and the risks — at a glance." />
+  <meta property="og:title" content="TIKO — Your Trade Plan" />
+  <meta property="og:description" content="Get actionable, conditional trading guidance with entry levels, stop loss, take profit, risk sizing and clear next steps." />
   <meta property="og:url" content="https://tiko.app/" />
   <meta property="og:image" content="https://tiko.app/assets/img/hero-portal.jpg" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="TIKO — Understand the setup" />
-  <meta name="twitter:description" content="Evidence-first market analysis for stocks and crypto, with an on-device copilot. Informational only." />
+  <meta name="twitter:title" content="TIKO — Your Trade Plan" />
+  <meta name="twitter:description" content="Get actionable, conditional trading guidance with entry levels, stop loss, take profit, risk sizing and clear next steps." />
   <meta name="twitter:image" content="https://tiko.app/assets/img/hero-portal.jpg" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#07040e" />
@@ -22,12 +22,13 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to analysis</a>
+  <a class="skip-link" href="#main">Skip to trade plan</a>
   <div id="app"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="modal-root"></div>
 
   <script src="js/util.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/store.js"></script>
   <script src="js/indicators.js"></script>
@@ -35,9 +36,11 @@
   <script src="js/data.js"></script>
   <script src="js/analysis.js"></script>
   <script src="js/tradeplan.js"></script>
+  <script src="js/simulation.js"></script>
   <script src="js/copilot.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/market-notifications.js"></script>
   <script src="js/views/onboarding.js"></script>
   <script src="js/views/dashboard.js"></script>
   <script src="js/views/analysis.js"></script>

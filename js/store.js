@@ -2,14 +2,61 @@
 (function (TA) {
   'use strict';
   var U = TA.util;
+  var legacyPrefix = TA.auth && typeof TA.auth.namespace === 'function' ? TA.auth.namespace() : 'gt.';
+  var prefix = 'gt.';
   var KEYS = {
-    settings: 'gt.settings.v1',
-    watchlist: 'gt.watchlist.v1',
-    recents: 'gt.recents.v1',
-    notes: 'gt.notes.v1',
-    feedback: 'gt.feedback.v1',
-    planLevels: 'gt.planlevels.v1'
+    settings: prefix + 'settings.v1',
+    watchlist: prefix + 'watchlist.v1',
+    recents: prefix + 'recents.v1',
+    notes: prefix + 'notes.v1',
+    feedback: prefix + 'feedback.v1',
+    planLevels: prefix + 'planlevels.v1',
+    avKeySession: prefix + 'avkey.session.v1'
   };
+
+  function mergeUniqueBy(items, incoming, key) {
+    var out = Array.isArray(items) ? items.slice() : [];
+    (Array.isArray(incoming) ? incoming : []).forEach(function (item) {
+      var value = item && item[key];
+      var index = out.findIndex(function (existing) { return existing && existing[key] === value; });
+      if (index < 0) out.push(item);
+      else if ((item.ts || item.addedAt || 0) > (out[index].ts || out[index].addedAt || 0)) out[index] = item;
+    });
+    return out;
+  }
+
+  // If a user was signed in when this version starts, move their device-only
+  // data to the shared local profile before the sign-in gate is removed.
+  if (legacyPrefix !== prefix) {
+    var migrations = {
+      'settings.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
+      'watchlist.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'symbol'); },
+      'recents.v1': function (current, prior) {
+        return mergeUniqueBy(current, prior, 'symbol').sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 12);
+      },
+      'notes.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); },
+      'feedback.v1': function (current, prior) { return mergeUniqueBy(current, prior, 'id').slice(-300); },
+      'planlevels.v1': function (current, prior) { return Object.assign({}, current || {}, prior || {}); }
+    };
+    Object.keys(migrations).forEach(function (suffix) {
+      var oldKey = legacyPrefix + suffix;
+      var oldValue = U.loadJSON(oldKey, null);
+      if (oldValue == null) return;
+      var newKey = prefix + suffix;
+      var currentValue = U.loadJSON(newKey, null);
+      if (U.saveJSON(newKey, migrations[suffix](currentValue, oldValue))) U.remove(oldKey);
+    });
+    try {
+      var oldSecretKey = legacyPrefix + 'avkey.session.v1';
+      var oldSecret = sessionStorage.getItem(oldSecretKey);
+      if (oldSecret && !sessionStorage.getItem(KEYS.avKeySession)) {
+        sessionStorage.setItem(KEYS.avKeySession, oldSecret);
+        if (sessionStorage.getItem(KEYS.avKeySession) === oldSecret) sessionStorage.removeItem(oldSecretKey);
+      } else {
+        sessionStorage.removeItem(oldSecretKey);
+      }
+    } catch (e) {}
+  }
 
   var defaults = {
     onboarded: false,
@@ -23,10 +70,35 @@
     dataMode: 'auto',
     avKey: '',
     accountSize: 10000,
-    riskPct: 1
+    riskPct: 1,
+    marketAlertsEnabled: true,
+    marketStockAlerts: true,
+    marketForexAlerts: true
   };
 
-  var settings = Object.assign({}, defaults, U.loadJSON(KEYS.settings, {}));
+  function readSessionSecret(key) {
+    try { return sessionStorage.getItem(key) || ''; } catch (e) { return ''; }
+  }
+
+  function writeSessionSecret(key, value) {
+    try {
+      if (value) sessionStorage.setItem(key, value);
+      else sessionStorage.removeItem(key);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  var savedSettings = U.loadJSON(KEYS.settings, {});
+  if (!savedSettings || typeof savedSettings !== 'object' || Array.isArray(savedSettings)) savedSettings = {};
+  var hadPersistedKey = Object.prototype.hasOwnProperty.call(savedSettings, 'avKey');
+  var avKey = readSessionSecret(KEYS.avKeySession);
+  if (!avKey && savedSettings.avKey) {
+    avKey = String(savedSettings.avKey);
+    writeSessionSecret(KEYS.avKeySession, avKey);
+  }
+  delete savedSettings.avKey;
+  if (hadPersistedKey) U.saveJSON(KEYS.settings, savedSettings);
+  var settings = Object.assign({}, defaults, savedSettings, { avKey: avKey });
   var watchlist = U.loadJSON(KEYS.watchlist, []);
   var recents = U.loadJSON(KEYS.recents, []);
   var notes = U.loadJSON(KEYS.notes, {});
@@ -42,6 +114,12 @@
     return h === 'intraday' ? 'day' : h === 'long' ? 'long' : 'swing';
   }
 
+  function persistSettings() {
+    var safeSettings = Object.assign({}, settings);
+    delete safeSettings.avKey;
+    U.saveJSON(KEYS.settings, safeSettings);
+  }
+
   var store = {
     defaults: defaults,
     onChange: function (fn) {
@@ -52,8 +130,15 @@
     /* ---------- settings ---------- */
     settings: function () { return Object.assign({}, settings); },
     updateSettings: function (patch) {
-      settings = Object.assign({}, settings, patch);
-      U.saveJSON(KEYS.settings, settings);
+      patch = patch || {};
+      if (Object.prototype.hasOwnProperty.call(patch, 'avKey')) {
+        settings.avKey = String(patch.avKey || '').trim();
+        writeSessionSecret(KEYS.avKeySession, settings.avKey);
+      }
+      var safePatch = Object.assign({}, patch);
+      delete safePatch.avKey;
+      settings = Object.assign({}, settings, safePatch);
+      persistSettings();
       emit();
       return store.settings();
     },
@@ -68,7 +153,14 @@
     },
     resetDefaults: function () {
       settings = Object.assign({}, defaults);
-      U.saveJSON(KEYS.settings, settings);
+      writeSessionSecret(KEYS.avKeySession, '');
+      persistSettings();
+      emit();
+    },
+    clearSecrets: function () {
+      settings.avKey = '';
+      writeSessionSecret(KEYS.avKeySession, '');
+      persistSettings();
       emit();
     },
 
@@ -171,6 +263,7 @@
     /* ---------- maintenance ---------- */
     resetAll: function () {
       Object.keys(KEYS).forEach(function (k) { U.remove(KEYS[k]); });
+      writeSessionSecret(KEYS.avKeySession, '');
       settings = Object.assign({}, defaults);
       watchlist = [];
       recents = [];
