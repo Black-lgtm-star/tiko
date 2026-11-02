@@ -1601,6 +1601,21 @@ body::after {
 .profile-popover-head b, .profile-popover-head small { display: block; overflow-wrap: anywhere; }
 .profile-popover-head b { color: var(--text); font-size: 14px; }
 .profile-local-badge { flex: none; padding: 3px 7px; border: 1px solid var(--accent-line); border-radius: 999px; color: #ffc8c9; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.profile-local-badge.is-owner { color: var(--accent-2); background: var(--accent-dim); }
+.profile-trigger.is-owner { border-color: var(--accent-line); }
+.profile-trigger.is-owner .profile-trigger-label { color: var(--accent-2); }
+.profile-trigger.is-owner .profile-avatar,
+.profile-avatar.is-owner {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 0 16px rgba(255, 47, 208, .28);
+}
+.access-role-badge {
+  display: inline-block; margin-left: 8px; padding: 3px 7px;
+  border: 1px solid var(--accent-line); border-radius: 999px;
+  background: var(--accent-dim); color: var(--accent-2);
+  font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; vertical-align: middle;
+}
 .profile-details { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 12px; margin: 12px 0 0; }
 .profile-details > div { min-width: 0; }
 .profile-details dt { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -1794,6 +1809,13 @@ body::after {
 :root[data-theme="light"] .alerts-row { background: rgba(20, 32, 51, .035); }
 :root[data-theme="light"] .alerts-badge,
 :root[data-theme="light"] .profile-local-badge { color: var(--accent); }
+:root[data-theme="light"] .profile-local-badge.is-owner,
+:root[data-theme="light"] .access-role-badge,
+:root[data-theme="light"] .profile-trigger.is-owner .profile-trigger-label { color: var(--accent); }
+:root[data-theme="light"] .profile-trigger.is-owner .profile-avatar,
+:root[data-theme="light"] .profile-avatar.is-owner {
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 0 16px rgba(217, 35, 56, .20);
+}
 :root[data-theme="light"] .profile-avatar { color: #fff9ed; }
 :root[data-theme="light"] .profile-settings-link { color: var(--cyan); }
 :root[data-theme="light"] .market-alert-option { background: rgba(20, 32, 51, .035); }

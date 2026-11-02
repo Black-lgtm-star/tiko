@@ -87,13 +87,40 @@ test('correct password issues a signed HttpOnly session', async () => {
   assert.match(cookie, /Secure/);
   assert.match(cookie, /SameSite=Lax/);
   const value = token(res);
-  assert.match(value, /^v1\.\d+\.[A-Za-z0-9_-]+$/);
+  assert.match(value, /^v1\.owner\.\d+\.[A-Za-z0-9_-]+$/);
 
   const open = await call('/analysis', { headers: { cookie: 'tiko_access=' + value } });
   assert.equal(open, undefined);
 
   const root = await call('/', { headers: { cookie: 'tiko_access=' + value } });
   assert.equal(root, undefined);
+});
+
+test('the session endpoint reports the owner role and is never cached', async () => {
+  const login = await call('/login', post(PASSWORD, '/'));
+  const value = token(login);
+  const res = await call('/api/session', { headers: { cookie: 'tiko_access=' + value } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /application\/json/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await res.json(), { role: 'owner' });
+});
+
+test('the session endpoint rejects a missing session', async () => {
+  const res = await call('/api/session');
+  assert.equal(res.status, 401);
+  assert.deepEqual(await res.json(), { error: 'unauthorized' });
+});
+
+test('legacy sessions stay valid and carry no role', async () => {
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const payload = 'v1.' + exp;
+  const sig = crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
+  const value = payload + '.' + sig;
+  const open = await call('/analysis', { headers: { cookie: 'tiko_access=' + value } });
+  assert.equal(open, undefined);
+  const info = await call('/api/session', { headers: { cookie: 'tiko_access=' + value } });
+  assert.deepEqual(await info.json(), { role: null });
 });
 
 test('tampered, expired and malformed sessions are rejected', async () => {

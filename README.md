@@ -69,6 +69,10 @@ Edge Function that runs before any file is read:
   `TIKO_SESSION_SECRET`, signs the session cookie. Neither value is in the repository.
 - A correct password sets `tiko_access` — HttpOnly, Secure, SameSite=Lax, seven days. `/logout`
   clears it, and Settings has a Sign out button.
+- The signed session records whether it came from the owner password or a personal code.
+  `/api/session` reports that role to the app, which brands the owner's profile with an Owner
+  badge; the route requires a valid session and is never cached. Older cookies stay valid and
+  simply show no role until the next sign-in.
 - Missing either variable fails closed: every request redirects to `/login?error=setup` and the API
   returns `401`, so an unconfigured deployment never serves the app.
 - Eight wrong passwords or codes from one IP in ten minutes lock that IP out for the rest of the window.
@@ -135,7 +139,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -159,7 +163,8 @@ reminders, duplicate suppression, disabled groups, notification permission gatin
 copy (12 tests). The quote-proxy suite covers response normalization, intraday session slicing,
 batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). The access
 suite covers password matching, session issue and verification, tampered, expired and malformed
-cookies, logout, redirect sanitizing and the fail-closed setup path (9 tests). The access-request
+cookies, logout, redirect sanitizing, the fail-closed setup path and the owner/member role returned
+by `/api/session`, including legacy cookies (12 tests). The access-request
 suite covers request storage and owner email, the honeypot, email validation, deduplication,
 cross-origin posts, approval, denial, code email and code login, wrong, expired and revoked codes,
 tampered review links, sender failures, throttling and the disabled configuration (10 tests), with
@@ -175,12 +180,15 @@ tests). The broker suite covers key normalization and session storage, live and 
 Alpaca headers, account/position/order normalization, connect saving only after a successful
 account call, the canTrade gate, bracket-order construction and its crypto/short/fractional
 rejections, the explicit-confirmation gate, the POST payload and upstream error mapping (12 tests),
-with fetch and session storage injected. All eleven suites total 144 tests.
+with fetch and session storage injected. The session suite covers the one-shot role lookup,
+owner/member mapping, unknown and missing roles, rejected lookups and the no-fetch fallback
+(5 tests). All twelve suites total 152 tests.
 
 ## What is in the MVP
 
 - **No in-app accounts** — once past the shared-password gate, the app opens directly into
-  onboarding or the dashboard; TIKO itself has no user accounts, profiles or in-app passwords.
+  onboarding or the dashboard; TIKO has no synced accounts, avatars or in-app passwords. The profile
+  menu labels an owner-password session as Owner; everything else stays device-local.
 - **Local-first storage** — data remains in this browser profile.
 - **Date and time** — a live clock with weekday, date, time and time zone appears in the top bar on
   every screen. The alerts panel shows the exact Eastern Time date and time of the next U.S. stock or

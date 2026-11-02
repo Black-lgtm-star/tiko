@@ -151,10 +151,14 @@
   }
 
   function accessCard() {
-    return '<section class="card span-12" aria-labelledby="set-access">' +
-      '<div class="card-head"><h2 id="set-access">' + ui.icon('shield', 15) + ' ' + U.esc(T('set.access')) + '</h2></div>' +
+    var role = TA.session ? TA.session.role() : null;
+    var copy = role === 'owner' ? 'set.access.owner' : role === 'member' ? 'set.access.member' : 'set.access.d';
+    return '<section class="card span-12" aria-labelledby="set-access" data-access-card>' +
+      '<div class="card-head"><h2 id="set-access">' + ui.icon('shield', 15) + ' ' + U.esc(T('set.access')) +
+        (role === 'owner' ? ' <span class="access-role-badge">' + U.esc(T('profile.ownerBadge')) + '</span>' : '') +
+      '</h2></div>' +
       '<div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
-        '<p class="small muted" style="margin:0">' + U.esc(T('set.access.d')) + '</p>' +
+        '<p class="small muted" style="margin:0">' + U.esc(T(copy)) + '</p>' +
         '<a class="btn btn-sm" href="/logout">' + ui.icon('external', 13) + ' ' + U.esc(T('set.access.signout')) + '</a>' +
       '</div>' +
       '</section>';
@@ -368,6 +372,13 @@
       '</div>';
 
     bind(root);
+
+    if (TA.session) {
+      TA.session.load().then(function () {
+        var card = root.querySelector('[data-access-card]');
+        if (card && TA.session.role()) card.outerHTML = accessCard();
+      });
+    }
   }
 
   TA.views = TA.views || {};

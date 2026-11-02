@@ -205,6 +205,8 @@ test('approving emails one personal code that unlocks the app', async () => {
   const cookie = login.headers.get('set-cookie').match(/tiko_access=([^;]+)/)[1];
   const open = await call('/analysis', { headers: { cookie: 'tiko_access=' + cookie } });
   assert.equal(open, undefined);
+  const info = await call('/api/session', { headers: { cookie: 'tiko_access=' + cookie } });
+  assert.deepEqual(await info.json(), { role: 'member' });
 });
 
 test('wrong, expired and revoked codes are rejected', async () => {

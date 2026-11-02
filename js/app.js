@@ -19,9 +19,11 @@
   }
 
   function profileTriggerHtml() {
-    return '<summary class="profile-trigger" aria-label="' + U.attr(T('profile.menu')) + '">' +
-        '<span class="profile-avatar" aria-hidden="true">' + ui.icon('user', 17) + '</span>' +
-        '<span class="profile-trigger-label">' + U.esc(T('profile.menu')) + '</span>' +
+    var owner = TA.session && TA.session.isOwner();
+    var label = T(owner ? 'profile.owner' : 'profile.menu');
+    return '<summary class="profile-trigger' + (owner ? ' is-owner' : '') + '" aria-label="' + U.attr(label) + '">' +
+        '<span class="profile-avatar" aria-hidden="true">' + ui.icon(owner ? 'starFill' : 'user', 17) + '</span>' +
+        '<span class="profile-trigger-label">' + U.esc(label) + '</span>' +
       '</summary>';
   }
 
@@ -144,6 +146,7 @@
 
   function profilePopoverHtml() {
     var settings = TA.store.settings();
+    var owner = TA.session && TA.session.isOwner();
     var markets = (settings.markets || []).map(function (market) { return T('ob.market.' + market); }).join(', ') || T('common.none');
     var amount = Number(settings.accountSize);
     var accountSize = isFinite(amount)
@@ -151,13 +154,13 @@
       : '—';
     var head = '<div class="profile-popover-head">' +
         '<div class="profile-identity">' +
-          '<span class="profile-avatar profile-avatar-lg" aria-hidden="true">' + ui.icon('user', 18) + '</span>' +
+          '<span class="profile-avatar profile-avatar-lg' + (owner ? ' is-owner' : '') + '" aria-hidden="true">' + ui.icon(owner ? 'starFill' : 'user', 18) + '</span>' +
           '<div class="profile-identity-copy">' +
             '<span class="profile-head-kicker">' + U.esc(T('profile.menu')) + '</span>' +
-            '<b>' + U.esc(T('profile.local')) + '</b>' +
+            '<b>' + U.esc(T(owner ? 'profile.owner' : 'profile.local')) + '</b>' +
           '</div>' +
         '</div>' +
-        '<span class="profile-local-badge">' + U.esc(T('profile.deviceOnly')) + '</span>' +
+        '<span class="profile-local-badge' + (owner ? ' is-owner' : '') + '">' + U.esc(T(owner ? 'profile.ownerBadge' : 'profile.deviceOnly')) + '</span>' +
       '</div>';
     return head +
       '<dl class="profile-details">' +
@@ -167,7 +170,7 @@
         '<div><dt>' + U.esc(T('profile.accountSize')) + '</dt><dd>' + U.esc(accountSize) + '</dd></div>' +
         '<div><dt>' + U.esc(T('profile.riskTrade')) + '</dt><dd>' + U.esc(U.fmtPct(Number(settings.riskPct) || 0, { sign: false })) + '</dd></div>' +
       '</dl>' +
-      '<p class="profile-local-note">' + U.esc(T('profile.localNote')) + '</p>' +
+      '<p class="profile-local-note">' + U.esc(T(owner ? 'profile.ownerNote' : 'profile.localNote')) + '</p>' +
       '<div class="profile-actions">' +
         '<a class="btn btn-sm" href="#/settings">' + ui.icon('settings', 14) + ' ' + U.esc(T('profile.settings')) + '</a>' +
       '</div>';
@@ -385,11 +388,32 @@
     setTheme: setTheme
   };
 
+  function applySession() {
+    if (!TA.session) return;
+    TA.session.load().then(function () {
+      if (!TA.session.isOwner()) return;
+      var menu = appRoot.querySelector('[data-profile-menu]');
+      if (!menu) return;
+      var trigger = menu.querySelector('.profile-trigger');
+      if (trigger) {
+        trigger.classList.add('is-owner');
+        trigger.setAttribute('aria-label', T('profile.owner'));
+        var avatar = trigger.querySelector('.profile-avatar');
+        if (avatar) avatar.innerHTML = ui.icon('starFill', 17);
+        var label = trigger.querySelector('.profile-trigger-label');
+        if (label) label.textContent = T('profile.owner');
+      }
+      var popover = menu.querySelector('[data-profile-popover]');
+      if (popover) popover.innerHTML = profilePopoverHtml();
+    });
+  }
+
   function boot() {
     if (TA.theme) TA.theme.start();
     TA.i18n.set(TA.store.settings().language);
     ui.initGlossary();
     if (TA.marketNotifications) TA.marketNotifications.start();
+    applySession();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {

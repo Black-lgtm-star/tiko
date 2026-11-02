@@ -40,14 +40,16 @@ export default async function middleware(req) {
     return reviewPage(url);
   }
 
+  if (path === '/api/session' || path === '/api/session/') {
+    const session = await readSession(req);
+    if (!session) return json({ error: 'unauthorized' }, 401);
+    const role = session.role === 'owner' ? 'owner' : session.role === 'code' ? 'member' : null;
+    return json({ role: role });
+  }
+
   if (await authorized(req)) return undefined;
 
-  if (path.startsWith('/api/')) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
-    });
-  }
+  if (path.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
 
   const next = safeNext(path + url.search);
   const target = new URL('/login', url);
@@ -109,23 +111,29 @@ function readCookie(req) {
   return null;
 }
 
-async function issue(maxAge) {
+async function issue(maxAge, role) {
   const exp = Math.floor(Date.now() / 1000) + (maxAge || MAX_AGE);
-  const payload = 'v1.' + exp;
+  const payload = 'v1.' + (role === 'owner' ? 'owner' : 'code') + '.' + exp;
   return payload + '.' + b64url(await hmac(payload));
 }
 
-async function authorized(req) {
-  if (!configured()) return false;
+async function readSession(req) {
+  if (!configured()) return null;
   const token = readCookie(req);
-  if (!token) return false;
+  if (!token) return null;
   const parts = token.split('.');
-  if (parts.length !== 3 || parts[0] !== 'v1') return false;
-  const exp = Number(parts[1]);
-  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return false;
-  const sent = fromB64url(parts[2]);
-  if (!sent) return false;
-  return sameBytes(sent, await hmac(parts[0] + '.' + parts[1]));
+  if (parts[0] !== 'v1' || (parts.length !== 3 && parts.length !== 4)) return null;
+  const role = parts.length === 4 ? (parts[1] === 'owner' ? 'owner' : 'code') : '';
+  const exp = Number(parts.length === 4 ? parts[2] : parts[1]);
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null;
+  const sent = fromB64url(parts[parts.length - 1]);
+  if (!sent) return null;
+  if (!sameBytes(sent, await hmac(parts.slice(0, -1).join('.')))) return null;
+  return { exp: exp, role: role };
+}
+
+async function authorized(req) {
+  return Boolean(await readSession(req));
 }
 
 async function passwordMatches(input) {
@@ -186,7 +194,7 @@ async function login(req, url) {
     status: 303,
     headers: {
       location: new URL(next, url).toString(),
-      'set-cookie': cookieHeader(await issue(kind === 'owner' ? MAX_AGE : CODE_SESSION)),
+      'set-cookie': cookieHeader(await issue(kind === 'owner' ? MAX_AGE : CODE_SESSION, kind)),
       'cache-control': 'no-store'
     }
   });
@@ -207,6 +215,16 @@ function redirect(url, target) {
   return new Response(null, {
     status: 303,
     headers: { location: new URL(target, url).toString(), 'cache-control': 'no-store' }
+  });
+}
+
+function json(body, status) {
+  return new Response(JSON.stringify(body), {
+    status: status || 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store'
+    }
   });
 }
 
