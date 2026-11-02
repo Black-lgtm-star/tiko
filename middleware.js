@@ -1,4 +1,4 @@
-/* Private access gate: one shared password, enforced before any file is served. */
+/* Private access gate: owner password and personal member codes, enforced before any file is served. */
 
 const COOKIE = 'tiko_access';
 const MAX_AGE = 60 * 60 * 24 * 7;
@@ -459,7 +459,7 @@ function requestPage(url) {
   if (!requestsEnabled()) {
     return gateResponse('Request access',
       '<h1>Requests are closed</h1>' +
-      '<p>The owner has not opened access requests. Ask them directly for the shared password.</p>' +
+      '<p>The owner has not opened access requests. Ask them directly for a personal access code.</p>' +
       '<p class="note"><a href="/login">Back to sign in</a></p>');
   }
   if (url.searchParams.get('sent') === '1') {
@@ -736,7 +736,7 @@ function loginPage(url) {
   const error = errorText(url.searchParams.get('error'));
   const invite = requestsEnabled()
     ? 'Need access? <a href="/request">Request an invitation</a>. Access codes arrive by email after the owner approves.'
-    : 'One shared password. Ask the owner if you do not have it.';
+    : 'The owner signs in with a password. Members need a personal access code.';
   return gateResponse('Sign in',
     '<h1>Private access</h1>' +
     '<p>This build opens only for people the owner has let in.</p>' +

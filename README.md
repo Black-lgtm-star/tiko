@@ -66,7 +66,8 @@ The deployment is private. Every page, script and API route passes through `midd
 Edge Function that runs before any file is read:
 
 - The owner password is stored only as `TIKO_ACCESS_PASSWORD` in Vercel Production; a second secret,
-  `TIKO_SESSION_SECRET`, signs the session cookie. Neither value is in the repository.
+  `TIKO_SESSION_SECRET`, signs the session cookie. Neither value is in the repository. Only the
+  owner signs in with a password — everyone else needs a personal code.
 - A correct password sets `tiko_access` — HttpOnly, Secure, SameSite=Lax, seven days. `/logout`
   clears it, and Settings has a Sign out button.
 - The signed session records whether it came from the owner password or a personal code.
@@ -114,8 +115,8 @@ the owner to forward.
 Codes are stored as SHA-256 hashes; the plaintext code is shown on the review page for one day only.
 Resend can email the owner without a verified domain, but emailing arbitrary requesters needs one.
 
-To change the password, update `TIKO_ACCESS_PASSWORD` in Vercel and redeploy; existing cookies stay
-valid until they expire. Rotating `TIKO_SESSION_SECRET` signs everyone out.
+To change the owner password, update `TIKO_ACCESS_PASSWORD` in Vercel and redeploy; existing cookies
+stay valid until they expire. Rotating `TIKO_SESSION_SECRET` signs everyone out.
 
 ## No ads, no third-party scripts
 

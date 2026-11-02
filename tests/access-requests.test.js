@@ -291,7 +291,7 @@ test('without mail or kv the request flow closes but the owner password still wo
   const post = await form('/request', { email: 'ada@example.com' }, ip(18));
   assert.match(post.headers.get('location'), /error=closed/);
   const loginPage = await (await call('/login')).text();
-  assert.match(loginPage, /One shared password/);
+  assert.match(loginPage, /The owner signs in with a password/);
   const owner = await form('/login', { password: PASSWORD, next: '/' }, ip(19));
   assert.equal(owner.headers.get('location'), BASE + '/');
   process.env.RESEND_API_KEY = saved;
