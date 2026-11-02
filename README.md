@@ -6,8 +6,10 @@ A zero-build, zero-dependency web app that produces the same structured read for
 snapshot, context, bull/bear evidence, key levels, conditional scenarios, risks and sources.
 It also turns that read into a conditional **action plan** — trigger, stop loss, take profit,
 reward-to-risk and risk-based position sizing — recomputed from the live price for crypto. Stop loss
-and take profit can be overridden per symbol and lens, and the plan recalculates live.
-It is informational only. It does not place trades, connect to brokers, or issue predictions.
+and take profit can be overridden per symbol and lens, and the plan recalculates live. A paper trade
+bot can run the same rules against a virtual ledger, and an optional Alpaca connection can turn a
+scan candidate into a live order — only after you review and confirm it. It does not issue
+predictions or trade automatically.
 
 ## Run it
 
@@ -118,7 +120,7 @@ that with a Content-Security-Policy (`vercel.json`):
 
 - `script-src 'self'` — only the app's own `js/*.js` files execute; injected ad or tracker scripts are refused.
 - `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
-- `connect-src` permits only the same-origin stock APIs (`/api/stocks`, `/api/quote`) and the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`, `api.frankfurter.dev`); Yahoo Finance is reached by the serverless proxy, never directly by the browser.
+- `connect-src` permits only the same-origin stock APIs (`/api/stocks`, `/api/quote`), the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`, `api.frankfurter.dev`) and Alpaca's trading hosts (`api.alpaca.markets`, `paper-api.alpaca.markets`); Yahoo Finance is reached by the serverless proxy, never directly by the browser.
 - Browser storage is local to the device. Watchlists, notes and settings use `localStorage`; the optional Alpha Vantage key uses `sessionStorage` and is cleared when the tab ends. Browser storage is not encrypted at rest.
 - No third-party search redirect: ticker lookup stays in the app through the catalog, Markets page and U.S. stock directory.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
@@ -133,7 +135,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -166,7 +168,14 @@ that every broker key resolves, the six-region and 20-question scope, the offici
 local checklist persistence and reset, and a full render smoke test (5 tests). The theme suite
 covers the dark default, preference normalization, system resolution against the device setting,
 `data-theme` and theme-color writes, persistence, EN/ES copy and the live system listener (7 tests).
-All nine suites total 119 tests.
+The bot suite covers state normalization, the open/watch/skip decision matrix, sized entries, the
+disabled, duplicate and position-limit guards, stop gaps filled at the worse price, target fills,
+short mirroring, plan flips closed at market, stats, start/pause and deterministic output (13
+tests). The broker suite covers key normalization and session storage, live and paper base URLs,
+Alpaca headers, account/position/order normalization, connect saving only after a successful
+account call, the canTrade gate, bracket-order construction and its crypto/short/fractional
+rejections, the explicit-confirmation gate, the POST payload and upstream error mapping (12 tests),
+with fetch and session storage injected. All eleven suites total 144 tests.
 
 ## What is in the MVP
 
@@ -178,17 +187,34 @@ All nine suites total 119 tests.
   forex session event alongside the countdown.
 - **Onboarding** — experience, markets, time horizon, preferred analysis, risk comfort, language.
   Answers are editable later in Settings and drive the default lens and copy density.
-- **Dashboard** — a hero read of the current session (watchlist count, six lenses, zero orders placed),
-  U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market overview,
-  and reference events. Recently opened analyses and non-catalog tickers are persisted with enough
-  metadata to reopen them.
+- **Dashboard** — a hero read of the current session (watchlist count, six lenses, no automatic
+  orders), U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market
+  overview, and reference events. Recently opened analyses and non-catalog tickers are persisted
+  with enough metadata to reopen them.
 - **Broker landscape reference** — an educational `#/brokers` page maps how retail
   brokers and trading apps in emerging markets are structured, regulated and priced: six regional
   directories, provider archetypes, a five-level regulation ladder, compensation schemes, a fee
   taxonomy with cost traps, indicative all-in costs, asset-class notes, tax prompts, a 20-question
   due-diligence checklist with local progress, red flags, 2026–28 trends and links to official
   regulator registers. Firms appear as examples only — never as endorsements, rankings or
-  recommendations — and the page connects to no broker, opens no account and routes no order.
+  recommendations — and the page itself opens no account and routes no order. The separate Alpaca
+  connection on `#/bot` is optional and confirmation-gated.
+- **Paper trade bot** — an on-device, deterministic simulator on `#/bot` that scans the watchlist
+  (or BTC, ETH, AAPL, NVDA and SPY when it is empty), opens virtual positions only when the same
+  plan rules used on the Analysis page are active or triggered with at least medium confidence and
+  1.3R, sizes them from the account size and risk percentage in Settings, and closes them at the
+  plan stop, the target or a flipped plan. It keeps a virtual ledger, equity curve, win rate and R
+  multiples in this browser. It runs on simulated data by default and its results are not a
+  forecast of real performance.
+- **Optional Alpaca broker** — the bot page can connect an Alpaca account from this tab. Keys are
+  kept in `sessionStorage` (`gt.broker.v1`), sent only to Alpaca, never stored on a server, and
+  cleared when the tab closes or you disconnect. You choose live or paper mode; the card shows the
+  account status, equity, buying power, broker positions and open orders. For a scan candidate the
+  bot can build an order ticket, but nothing is sent until you tick the acknowledgement and press
+  **Send order** — there is no automatic or background order path, and tickets are offered only for
+  live stock scans less than an hour old. This build sends long stock and
+  ETF entries as whole-share market buys with a bracket stop and target; short setups and crypto
+  stay on the paper ledger. TIKO is not affiliated with Alpaca, and the app is not investment advice.
 - **Analysis page** — identical seven-section structure for every asset:
   1. Snapshot (price, timeframe, data timestamp)
   2. Market context (trend, volatility, liquidity, momentum, news/event coverage)
@@ -329,11 +355,13 @@ js/catalog.js       supported assets, search, sample-series parameters
 js/data.js          providers, caching, fallback, stock quote proxy, overview/quotes, FX rates
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
+js/bot.js           deterministic paper-trading loop, virtual ledger and stats
+js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate
 js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
-js/views/*.js       onboarding, dashboard, analysis, settings, brokers reference
+js/views/*.js       onboarding, dashboard, analysis, settings, brokers reference, paper bot
 js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
@@ -352,25 +380,38 @@ downscales it on a canvas and `chartread.scan` classifies background, ink and ca
 measure the plotted series. The file never leaves the device, and the scanner reports shape only, so
 the copilot labels axis values and timeframe as unread. No LLM is involved and nothing is sent to a
 server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
-never sends an order anywhere.
+never sends an order anywhere. The paper bot is pure as well: `bot.scan` takes the current ledger
+and a list of asset/analysis/plan inputs, manages open positions, ranks new candidates by R:R and
+returns a new ledger, events and decisions. The view only fetches market data and stores the
+result under `gt.bot.v1`. The single network path to a broker is `broker.submit`, which is reachable
+only from the review dialog after the acknowledgement checkbox is ticked; `broker.submit` itself
+rejects any call whose `deps.confirm` is not exactly `true`. Keys are read from session storage at
+call time and are never written to the ledger, the DOM, logs or a server.
 
 Storage keys: `gt.settings.v1` also holds `theme` (`dark`, `light` or `system`), `accountSize` and
 `riskPct` for the sizing calculator.
 
-Routes: `#/`, `#/markets`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
+Routes: `#/`, `#/markets`, `#/bot`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
 correctly from recents or the watchlist.
 
 ### Storage keys
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
-`gt.planlevels.v1`, `gt.brokerchecks.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+`gt.planlevels.v1`, `gt.brokerchecks.v1`, `gt.bot.v1`, and — in session storage only — `gt.broker.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
 reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
 (`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
 shared profile and removed on first load.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
 `gt.brokerchecks.v1` stores only the boolean state of the broker due-diligence checklist; it is
 cleared by the checklist reset and by Reset all data.
+`gt.bot.v1` holds the paper ledger: running state, open and closed positions, the last scan's
+decisions, the activity log (200 entries), realised P&L and up to 120 equity snapshots. Open
+positions are capped at 2, 3 or 5 by the page control, closed trades at 120. The bot's reset button
+and Reset all data both clear it.
+`gt.broker.v1` is the exception: it holds the Alpaca key ID, secret and mode in `sessionStorage`
+only, is never serialized into the ledger or a reset export, and disappears when the tab closes.
+The app holds no server-side copy.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKO's same-origin `/api/quote` proxy to Yahoo Finance.
 
@@ -415,14 +456,21 @@ still being translated.
 
 ## Scope boundaries
 
-Included: stocks and crypto, on-demand analysis, search, watchlist, recent analyses, local feedback.
-Excluded by design: price or trigger alerts, broker connections, portfolio tracking, automated
-strategies, licensed news/event feeds, options chains, fundamental valuation data. Market-session
-open/close reminders are included because they describe exchange hours, not a trade recommendation.
+Included: stocks and crypto, on-demand analysis, search, watchlist, recent analyses, local feedback,
+a simulated paper trade bot whose ledger never leaves the browser, and an optional Alpaca connection
+that sends a live order only after per-order confirmation.
+Excluded by design: price or trigger alerts, automatic order execution, portfolio tracking, licensed
+news/event feeds, options chains, fundamental valuation data. Market-session open/close reminders
+are included because they describe exchange hours, not a trade recommendation. The page named
+"trade bot" runs as a deterministic simulator by default; live orders exist only through the
+explicitly connected Alpaca account, are limited to long stock and ETF brackets, and always require
+the review dialog.
 
 ## Disclaimer
 
 Informational only. This is a description of a market setup produced by fixed rules, not investment
 advice, a recommendation, or a guarantee. The action plan is a conditional read of levels, trend and
 volume — not a recommendation, a forecast, or an order. Data may be delayed, incomplete or — where
-labeled — synthetic. You are responsible for your decisions.
+labeled — synthetic. The optional Alpaca connection can send a real order to your account only after
+you review and confirm it; you are responsible for every order sent from your account. TIKO is not
+affiliated with Alpaca. You are responsible for your decisions.

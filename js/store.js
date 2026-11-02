@@ -11,6 +11,7 @@
     feedback: prefix + 'feedback.v1',
     planLevels: prefix + 'planlevels.v1',
     brokerChecks: prefix + 'brokerchecks.v1',
+    bot: prefix + 'bot.v1',
     avKeySession: prefix + 'avkey.session.v1'
   };
   // The old sign-in build scoped data per account under gt.u.<uid>.*. Fold any
@@ -124,6 +125,7 @@
   var planLevels = U.loadJSON(KEYS.planLevels, {});
   var brokerChecks = U.loadJSON(KEYS.brokerChecks, {});
   if (!brokerChecks || typeof brokerChecks !== 'object' || Array.isArray(brokerChecks)) brokerChecks = {};
+  var botState = U.loadJSON(KEYS.bot, null);
   var listeners = [];
 
   function emit() {
@@ -289,6 +291,21 @@
       emit();
     },
 
+    /* ---------- paper trade bot ---------- */
+    botState: function () {
+      return botState ? JSON.parse(JSON.stringify(botState)) : null;
+    },
+    saveBot: function (state) {
+      botState = state;
+      U.saveJSON(KEYS.bot, botState);
+      emit();
+    },
+    clearBot: function () {
+      botState = null;
+      U.remove(KEYS.bot);
+      emit();
+    },
+
     /* ---------- maintenance ---------- */
     resetAll: function () {
       Object.keys(KEYS).forEach(function (k) { U.remove(KEYS[k]); });
@@ -300,6 +317,7 @@
       feedback = [];
       planLevels = {};
       brokerChecks = {};
+      botState = null;
       emit();
     },
     exportFeedback: function () {

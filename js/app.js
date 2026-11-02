@@ -115,6 +115,7 @@
           '<nav class="appnav">' +
             '<a href="#/" data-nav="dashboard">' + U.esc(T('nav.dashboard')) + '</a>' +
             '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
+            '<a href="#/bot" data-nav="bot">' + U.esc(T('nav.bot')) + '</a>' +
             '<a href="#/brokers" data-nav="brokers">' + U.esc(T('nav.brokers')) + '</a>' +
             '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
           '</nav>' +
@@ -258,7 +259,7 @@
   }
 
   function markNav(routeName) {
-    var target = ['settings', 'markets', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
+    var target = ['settings', 'markets', 'bot', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
     U.$$('.appnav a[data-nav]', document).forEach(function (a) {
       if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -282,6 +283,7 @@
     if (path === '/settings') return { name: 'settings', params: params };
     if (path === '/markets') return { name: 'markets', params: params };
     if (path === '/brokers') return { name: 'brokers', params: params };
+    if (path === '/bot') return { name: 'bot', params: params };
     var m = path.match(/^\/analysis\/(.+)$/);
     if (m) {
       params.symbol = decodeURIComponent(m[1]);
@@ -295,6 +297,7 @@
     if (route.name === 'settings') return T('set.title') + ' · ' + T('app.name');
     if (route.name === 'markets') return T('nav.markets') + ' · ' + T('app.name');
     if (route.name === 'brokers') return T('nav.brokers') + ' · ' + T('app.name');
+    if (route.name === 'bot') return T('bot.title') + ' · ' + T('app.name');
     return T('app.name') + ' — ' + T('app.promise');
   }
 
@@ -321,6 +324,7 @@
     else if (route.name === 'settings') TA.views.settings.render(main);
     else if (route.name === 'markets') TA.views.dashboard.renderMarkets(main);
     else if (route.name === 'brokers') TA.views.brokers.render(main);
+    else if (route.name === 'bot') TA.views.bot.render(main);
     else TA.views.dashboard.render(main);
 
     document.title = titleFor(route);
