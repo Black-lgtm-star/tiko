@@ -133,7 +133,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -142,10 +142,13 @@ determinism, stop buffers, exit-level suggestions, fixed-fractional sizing and a
 editable stop/take-profit overrides, validation errors, warnings, and EN/ES key coverage (25 tests).
 The copilot suite covers brief headlines for every plan state, EN/ES intent routing with synonym
 and typo tolerance, grounded answers for each topic (including stop-loss/take-profit suggestions for
-an active plan, a directional lean and a neutral read), selected-side trade actions with and without
+an active plan, a directional lean and a neutral read), a dedicated buy/sell answer that pairs the
+evidence score with the conditional plan, failing confirmation checks, extended and sample modes,
+both-sided exits for a neutral read, simplified versions of every topic triggered by plain-language
+requests, selected-side trade actions with and without
 a simulation, chart-image answers with and without a
 scan, answer caching, sample warnings, fallback scope, citations and follow-ups, determinism, and
-EN/ES key coverage (30 tests). The chart-reader suite covers plot detection, candle and line
+EN/ES key coverage (38 tests). The chart-reader suite covers plot detection, candle and line
 direction, support/resistance touches, flat and choppy trend reads, rejection of non-chart
 screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The
 market-alert suite covers weekday, weekend,
@@ -158,7 +161,12 @@ cookies, logout, redirect sanitizing and the fail-closed setup path (9 tests). T
 suite covers request storage and owner email, the honeypot, email validation, deduplication,
 cross-origin posts, approval, denial, code email and code login, wrong, expired and revoked codes,
 tampered review links, sender failures, throttling and the disabled configuration (10 tests), with
-Redis and Resend replaced by in-memory fakes. All seven suites total 99 tests.
+Redis and Resend replaced by in-memory fakes. The broker-reference suite checks EN/ES copy parity,
+that every broker key resolves, the six-region and 20-question scope, the official-register list,
+local checklist persistence and reset, and a full render smoke test (5 tests). The theme suite
+covers the dark default, preference normalization, system resolution against the device setting,
+`data-theme` and theme-color writes, persistence, EN/ES copy and the live system listener (7 tests).
+All nine suites total 119 tests.
 
 ## What is in the MVP
 
@@ -174,6 +182,13 @@ Redis and Resend replaced by in-memory fakes. All seven suites total 99 tests.
   U.S. stock directory, on-demand live FX quotes, watchlist, recent analyses, market overview,
   and reference events. Recently opened analyses and non-catalog tickers are persisted with enough
   metadata to reopen them.
+- **Broker landscape reference** — an educational `#/brokers` page maps how retail
+  brokers and trading apps in emerging markets are structured, regulated and priced: six regional
+  directories, provider archetypes, a five-level regulation ladder, compensation schemes, a fee
+  taxonomy with cost traps, indicative all-in costs, asset-class notes, tax prompts, a 20-question
+  due-diligence checklist with local progress, red flags, 2026–28 trends and links to official
+  regulator registers. Firms appear as examples only — never as endorsements, rankings or
+  recommendations — and the page connects to no broker, opens no account and routes no order.
 - **Analysis page** — identical seven-section structure for every asset:
   1. Snapshot (price, timeframe, data timestamp)
   2. Market context (trend, volatility, liquidity, momentum, news/event coverage)
@@ -200,8 +215,14 @@ Redis and Resend replaced by in-memory fakes. All seven suites total 99 tests.
   focus). No order is ever placed.
 - **Ask-the-chart copilot** — an on-device assistant that turns the page's own facts into faster
   answers. A live brief summarizes the state, trend, location, momentum and volatility; suggested
-  questions cover the setup, trade actions, stop loss and take profit, key levels, invalidation,
-  trend, volatility, volume, scenarios, evidence, the chart, and data freshness. You can also drop,
+  questions cover buy/sell, the setup, trade actions, stop loss and take profit, key levels,
+  invalidation, trend, volatility, volume, scenarios, evidence, the chart, and data freshness. A
+  buy/sell question is answered by grading the evidence scores, stating the plan's current side and
+  state, listing the trigger/entry/invalidation/target with R:R and position size, showing which
+  confirmation checks pass or fail, and naming the levels that would flip the read — never by telling
+  the user to buy or sell. Asking in plain language ("explain simply", "in simple terms", "explicalo
+  simple") returns a shortened version of any topic with the same facts and levels, and the prompt
+  chips include a one-tap "Explain this simply". You can also drop,
   paste or choose a
   chart screenshot from a trading app: it is decoded and measured in the page, never uploaded. The
   scanner reports the plot shape — direction, net move, position in range, volatility, trend fit,
@@ -226,7 +247,7 @@ Redis and Resend replaced by in-memory fakes. All seven suites total 99 tests.
   panel shows whether each market is open or closed and when the next event is due. Alerts are
   scheduled on this device while TIKO is open; browser notifications are optional and need
   permission. Crypto trades continuously, so it has no daily open or close.
-- **Settings** — profile chips, default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
+- **Settings** — profile chips, appearance (dark, light or system), default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
   optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
 - **Feedback and notes** — helpful / inaccurate / missing context, plus a free-text comment and a
   per-symbol note. Stored locally, exportable as JSON.
@@ -282,6 +303,15 @@ portal scene with a dark left third reserved for copy.
 - The starfield, HUD stat bar and card edges are CSS-only; all motion respects
   `prefers-reduced-motion`, and copy stays readable without the backdrop.
 
+### Appearance
+
+Dark is the default. **Settings → Appearance** offers **Dark**, **Light** and **System**; the
+preference is stored in `gt.settings.v1` and applied as `data-theme="dark|light"` on `<html>` before
+the first render, with the `theme-color` meta updated to match. **System** follows
+`prefers-color-scheme` and re-applies when the device setting changes. The light palette keeps the
+comic-book framing in ink-on-paper colors, while the hero panel and chart surfaces stay dark so the
+generated art and SVG axis labels keep their contrast.
+
 ## Architecture
 
 Classic scripts sharing a `window.TA` namespace, loaded in dependency order by `index.html`.
@@ -292,6 +322,7 @@ styles.css          design tokens, layout, components, responsive rules
 js/util.js          escaping, formatting, DOM helpers, seeded RNG, storage helpers
 js/i18n.js          EN/ES dictionaries, core FR/PT-BR translations, and templating ({{var}})
 js/store.js         settings, watchlist, recents, notes, feedback (localStorage)
+js/theme.js         dark/light/system preference, data-theme and theme-color
 js/market-notifications.js  exchange calendars, session state, local open/close alerts
 js/indicators.js    SMA, RSI(14), ATR, realized volatility, pivots, drawdown
 js/catalog.js       supported assets, search, sample-series parameters
@@ -302,8 +333,8 @@ js/copilot.js       on-device brief and question answering over facts, plan and 
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
-js/views/*.js       onboarding, dashboard, analysis, settings
-js/app.js           shell, hash router, language refresh, boot
+js/views/*.js       onboarding, dashboard, analysis, settings, brokers reference
+js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
 Data flow: `views → data.getMarketData(asset, {timeframe}) → {asset, candles, quote, meta}`.
@@ -323,20 +354,23 @@ the copilot labels axis values and timeframe as unread. No LLM is involved and n
 server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
 never sends an order anywhere.
 
-Storage keys: `gt.settings.v1` also holds `accountSize` and `riskPct` for the sizing calculator.
+Storage keys: `gt.settings.v1` also holds `theme` (`dark`, `light` or `system`), `accountSize` and
+`riskPct` for the sizing calculator.
 
-Routes: `#/`, `#/markets`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
+Routes: `#/`, `#/markets`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
 correctly from recents or the watchlist.
 
 ### Storage keys
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
-`gt.planlevels.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+`gt.planlevels.v1`, `gt.brokerchecks.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
 reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
 (`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
 shared profile and removed on first load.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
+`gt.brokerchecks.v1` stores only the boolean state of the broker due-diligence checklist; it is
+cleared by the checklist reset and by Reset all data.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKO's same-origin `/api/quote` proxy to Yahoo Finance.
 

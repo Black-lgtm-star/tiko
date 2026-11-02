@@ -10,6 +10,7 @@
     notes: prefix + 'notes.v1',
     feedback: prefix + 'feedback.v1',
     planLevels: prefix + 'planlevels.v1',
+    brokerChecks: prefix + 'brokerchecks.v1',
     avKeySession: prefix + 'avkey.session.v1'
   };
   // The old sign-in build scoped data per account under gt.u.<uid>.*. Fold any
@@ -77,6 +78,7 @@
   var defaults = {
     onboarded: false,
     experience: 'intermediate',
+    theme: 'dark',
     markets: ['crypto', 'stocks'],
     horizon: 'swing',
     analysis: 'both',
@@ -120,6 +122,8 @@
   var notes = U.loadJSON(KEYS.notes, {});
   var feedback = U.loadJSON(KEYS.feedback, []);
   var planLevels = U.loadJSON(KEYS.planLevels, {});
+  var brokerChecks = U.loadJSON(KEYS.brokerChecks, {});
+  if (!brokerChecks || typeof brokerChecks !== 'object' || Array.isArray(brokerChecks)) brokerChecks = {};
   var listeners = [];
 
   function emit() {
@@ -270,6 +274,21 @@
       emit();
     },
 
+    /* ---------- broker due-diligence checklist ---------- */
+    brokerChecks: function () { return Object.assign({}, brokerChecks); },
+    setBrokerCheck: function (id, checked) {
+      if (!id) return;
+      if (checked) brokerChecks[id] = true;
+      else delete brokerChecks[id];
+      U.saveJSON(KEYS.brokerChecks, brokerChecks);
+      emit();
+    },
+    clearBrokerChecks: function () {
+      brokerChecks = {};
+      U.saveJSON(KEYS.brokerChecks, brokerChecks);
+      emit();
+    },
+
     /* ---------- maintenance ---------- */
     resetAll: function () {
       Object.keys(KEYS).forEach(function (k) { U.remove(KEYS[k]); });
@@ -280,6 +299,7 @@
       notes = {};
       feedback = [];
       planLevels = {};
+      brokerChecks = {};
       emit();
     },
     exportFeedback: function () {

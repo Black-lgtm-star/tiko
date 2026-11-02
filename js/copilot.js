@@ -5,11 +5,22 @@
   'use strict';
   var U = TA.util;
 
-  var PROMPTS = ['setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
-  var INTENTS = ['setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'image', 'data', 'summary'];
+  var PROMPTS = ['buySell', 'setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario', 'simple'];
+  var INTENTS = ['buySell', 'setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'image', 'data', 'summary', 'simple'];
   var CITES = ['plan', 'snapshot', 'context', 'cases', 'levels', 'scenarios', 'risks', 'sources'];
 
   var RULES = [
+    {
+      id: 'buySell',
+      words: ['buy', 'sell', 'long', 'short', 'comprar', 'vender', 'corto', 'largo'],
+      phrases: [
+        'should i buy or sell', 'buy or sell', 'should i buy', 'should i sell',
+        'should i go long', 'should i go short', 'is it a buy', 'is it a sell',
+        'long or short',
+        'debo comprar o vender', 'compro o vendo', 'comprar o vender',
+        'debo comprar', 'debo vender', 'largo o corto', 'es compra', 'es venta'
+      ]
+    },
     {
       id: 'actions',
       words: ['steps', 'checklist', 'manage', 'managing', 'management', 'execute', 'execution', 'siguiente', 'siguientes', 'pasos', 'gestionar', 'ejecutar', 'ejecucion', 'hacer'],
@@ -85,8 +96,27 @@
       id: 'summary',
       words: ['summary', 'resumen', 'brief', 'overview', 'quick', 'recap', 'tldr', 'breve', 'general', 'summarize', 'resumir', 'panorama'],
       phrases: ['big picture', 'bottom line']
+    },
+    {
+      id: 'simple',
+      words: ['simplify', 'simplified', 'simpler', 'simply', 'brevemente', 'sencillo', 'sencilla', 'simplifica', 'simplificado', 'eli5'],
+      phrases: [
+        'in simple terms', 'keep it simple', 'simple answer', 'simple version', 'plain english',
+        'explain this simply', 'explain simply', 'in one sentence', 'explain like i m five',
+        'sin complicaciones', 'en simple', 'en palabras sencillas', 'de forma sencilla',
+        'explica simple', 'explicalo simple', 'explicamelo simple',
+        'responde simple', 'mas simple', 'lo mas simple'
+      ]
     }
   ];
+
+  var SIMPLE_RULE = RULES[RULES.length - 1];
+
+  function wantsSimple(q) {
+    var s = normalize(q);
+    var tokens = s.split(/[^a-z0-9]+/).filter(Boolean);
+    return scoreRule(SIMPLE_RULE, tokens, ' ' + tokens.join(' ') + ' ') > 0;
+  }
 
   var DETECT_CACHE = Object.create(null);
   var DETECT_CACHE_SIZE = 0;
@@ -178,6 +208,17 @@
         bestScore = score;
         best = RULES[i].id;
       }
+    }
+    // "Simple" is a request for a shorter answer, not a topic. When another
+    // rule also matches a word, prefer that topic and let the answer shrink.
+    if (best === 'simple') {
+      var topic = 'simple';
+      var topicScore = 0;
+      for (var t = 0; t < RULES.length - 1; t++) {
+        var s = scoreRule(RULES[t], tokens, padded);
+        if (s > topicScore) { topicScore = s; topic = RULES[t].id; }
+      }
+      if (topicScore >= 2 || topicScore >= bestScore) best = topic;
     }
     var out = bestScore >= 1 ? best : 'fallback';
     if (DETECT_CACHE_SIZE > 80) { DETECT_CACHE = Object.create(null); DETECT_CACHE_SIZE = 0; }
@@ -352,6 +393,111 @@
   }
 
   /* ---------------- answers ---------------- */
+
+  function buySellAnswer(a, plan) {
+    var p = plan || {};
+    var lean = a.lean || {};
+    var leanDir = lean.dir || 'neutral';
+    var conf = lean.confidence || 'low';
+    var ev = a.evidence || {};
+    var paragraphs = [
+      T('copilot.a.buySell.lean', {
+        lean: T('an.lean.' + leanDir),
+        conf: T('an.conf.' + conf),
+        bull: U.isNum(ev.bullScore) ? ev.bullScore : '—',
+        bear: U.isNum(ev.bearScore) ? ev.bearScore : '—'
+      })
+    ];
+
+    var side = p.side === 'long' || p.side === 'short' ? p.side : null;
+    if (side) {
+      var sideLabel = T(side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell');
+      if (p.state === 'extended') {
+        paragraphs.push(T('copilot.a.buySell.extended', {
+          side: sideLabel,
+          d: U.isNum(p.distToTriggerPct) ? U.fmtPct(p.distToTriggerPct, { sign: false }) : '—',
+          t: p.triggerText
+        }));
+      } else if (p.state === 'invalidated') {
+        paragraphs.push(T('copilot.a.buySell.invalidated', {
+          side: sideLabel,
+          lv: side === 'long' ? p.s1Text : p.r1Text
+        }));
+      } else if (p.state === 'no_edge') {
+        paragraphs.push(T('copilot.a.buySell.noEdge', {
+          p: p.priceText, s: p.s1Text, r: p.r1Text
+        }));
+      } else if (p.state === 'practice') {
+        paragraphs.push(T('copilot.a.buySell.practice'));
+        if (U.isNum(p.entry) && U.isNum(p.stop)) {
+          paragraphs.push(T('copilot.a.setup.levels', {
+            e: p.entryText, s: p.stopText, t: p.targetText, rr: p.rrText
+          }));
+        }
+      } else if (U.isNum(p.entry) && U.isNum(p.stop)) {
+        paragraphs.push(T(p.state === 'wait' ? 'copilot.a.buySell.wait' : 'copilot.a.buySell.active', {
+          side: sideLabel,
+          setup: T('plan.setup.' + (p.setup || 'none')),
+          state: T('plan.state.' + (p.state || 'no_edge')),
+          t: p.triggerText, e: p.entryText, s: p.stopText,
+          tg: p.targetText, rr: rrText(p.rr)
+        }));
+        var sz = TA.store && TA.tradeplan && TA.tradeplan.size
+          ? TA.tradeplan.size(p, TA.store.settings())
+          : null;
+        if (sz) {
+          paragraphs.push(T('copilot.a.actions.size', {
+            loss: U.fmtPrice(sz.maxLoss, '$', lang()),
+            units: U.fmtNum(sz.units, lang(), sz.units >= 1 ? 2 : 6),
+            notional: U.fmtPrice(sz.notional, '$', lang())
+          }));
+        }
+      }
+      if (p.checks && p.checks.length) {
+        paragraphs.push(T('copilot.a.buySell.checks', {
+          list: p.checks.map(function (c) {
+            return T(c.ok ? 'copilot.a.buySell.pass' : 'copilot.a.buySell.fail', {
+              check: T(c.key, c.params)
+            });
+          }).join(' · ')
+        }));
+      }
+    } else {
+      paragraphs.push(T('copilot.a.buySell.noSide'));
+      var suggestion = TA.tradeplan.exits(a, { lang: lang(), side: null });
+      if (suggestion && suggestion.maps && suggestion.maps.length === 2) {
+        suggestion.maps.forEach(function (map) {
+          paragraphs.push(T('copilot.a.buySell.both', {
+            side: T(map.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell'),
+            p: suggestion.priceText,
+            s: map.stopText,
+            loss: U.fmtPct(-map.lossPct, { sign: true }),
+            t: map.targetText,
+            gain: U.fmtPct(map.gainPct, { sign: true }),
+            rr: rrText(map.rr)
+          }));
+        });
+      }
+    }
+
+    var bull = (ev.bull || []).map(function (e) { return T(e.key, e.params); }).join(' · ');
+    var bear = (ev.bear || []).map(function (e) { return T(e.key, e.params); }).join(' · ');
+    if (bull) paragraphs.push(T('copilot.a.evidence.bull', { list: bull }));
+    if (bear) paragraphs.push(T('copilot.a.evidence.bear', { list: bear }));
+
+    if (U.isNum(p.s1) || U.isNum(p.r1)) {
+      paragraphs.push(T('copilot.a.buySell.flip', { r: p.r1Text, s: p.s1Text }));
+    }
+    if (p.warnings && p.warnings.length) {
+      paragraphs.push(p.warnings.map(function (k) { return T(k); }).join(' '));
+    }
+    paragraphs.push(T('copilot.a.buySell.caveat'));
+    return {
+      paragraphs: paragraphs,
+      cites: ['plan', 'levels', 'cases'],
+      followups: ['actions', 'exits', 'risk']
+    };
+  }
 
   function setupAnswer(a, plan) {
     var p = plan || {};
@@ -821,7 +967,276 @@
     };
   }
 
+  /* ---------------- simplified answers ---------------- */
+
+  function simpleLevels(a) {
+    return T('copilot.a.simple.levels', {
+      s: levelText(a.nearestSupport),
+      r: levelText(a.nearestResistance)
+    });
+  }
+
+  function simpleSide(p) {
+    return T(p.side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell');
+  }
+
+  function simpleLean(a) {
+    var lean = a.lean || {};
+    return T('copilot.a.simple.lean', {
+      lean: T('an.lean.' + (lean.dir || 'neutral')),
+      conf: T('an.conf.' + (lean.confidence || 'low'))
+    });
+  }
+
+  function simplePlanExits(p) {
+    if (!U.isNum(p.entry) || !U.isNum(p.stop) || !U.isNum(p.target)) return null;
+    if (p.state === 'no_edge' || p.state === 'invalidated') return null;
+    return T('copilot.a.simple.exits', {
+      e: p.entryText, s: p.stopText, t: p.targetText, rr: rrText(p.rr)
+    });
+  }
+
+  function simpleGeneric(a, plan) {
+    return {
+      paragraphs: [brief(a, plan).headline, simpleLevels(a)],
+      cites: ['snapshot', 'levels'],
+      followups: ['buySell', 'actions', 'risk']
+    };
+  }
+
+  var SIMPLE_RESOLVERS = {
+    buySell: function (a, plan) {
+      var p = plan || {};
+      var lean = a.lean || {};
+      var out = [simpleLean(a)];
+      if (p.side === 'long' || p.side === 'short') {
+        out.push(T('copilot.a.simple.side', {
+          side: simpleSide(p),
+          action: T(p.actionKey || 'plan.act.noEdge', p.actionParams || {})
+        }));
+        var exits = simplePlanExits(p);
+        if (exits) out.push(exits);
+      } else {
+        out.push(T('copilot.a.simple.buySellNeutral'));
+      }
+      out.push(T('copilot.a.simple.caveat'));
+      return { paragraphs: out, cites: ['plan', 'levels', 'cases'], followups: ['actions', 'exits', 'risk'] };
+    },
+    setup: function (a, plan) {
+      return {
+        paragraphs: [brief(a, plan).headline, simpleLevels(a)],
+        cites: ['plan', 'levels'],
+        followups: ['actions', 'risk']
+      };
+    },
+    actions: function (a, plan) {
+      var p = plan || {};
+      if (p.side !== 'long' && p.side !== 'short') {
+        return {
+          paragraphs: [T('copilot.a.simple.buySellNeutral')],
+          cites: ['plan'],
+          followups: ['buySell', 'setup']
+        };
+      }
+      var out = [T(p.actionKey || 'plan.act.noEdge', p.actionParams || {})];
+      var exits = simplePlanExits(p);
+      if (exits) out.push(exits);
+      out.push(T('copilot.a.simple.caveat'));
+      return { paragraphs: out, cites: ['plan'], followups: ['exits', 'risk'] };
+    },
+    exits: function (a, plan) {
+      var p = plan || {};
+      var exits = simplePlanExits(p);
+      if (exits) {
+        return { paragraphs: [exits], cites: ['plan'], followups: ['risk', 'setup'] };
+      }
+      var suggestion = TA.tradeplan.exits(a, {
+        lang: lang(),
+        side: p.side === 'long' || p.side === 'short' ? p.side : null
+      });
+      var out = [];
+      if (suggestion && suggestion.maps) {
+        suggestion.maps.forEach(function (map) {
+          out.push(T('copilot.a.exits.' + map.side, {
+            s: map.stopText,
+            loss: U.fmtPct(-map.lossPct, { sign: true }),
+            t: map.targetText,
+            gain: U.fmtPct(map.gainPct, { sign: true }),
+            rr: rrText(map.rr)
+          }));
+        });
+      }
+      if (!out.length) out.push(T('copilot.a.exits.none'));
+      return { paragraphs: out, cites: ['levels', 'plan'], followups: ['risk', 'setup'] };
+    },
+    levels: function (a) {
+      var f = a.facts || {};
+      var out = [simpleLevels(a)];
+      if (U.isNum(f.posInRange)) {
+        out.push(T('copilot.a.levels.range', {
+          pos: Math.round(f.posInRange), n: f.windowBars,
+          lo: f.rangeLowText, hi: f.rangeHighText
+        }));
+      }
+      return { paragraphs: out, cites: ['levels'], followups: ['setup', 'risk'] };
+    },
+    risk: function (a, plan) {
+      var p = plan || {};
+      if (!U.isNum(p.stop) || p.state === 'no_edge' || p.state === 'invalidated') {
+        return {
+          paragraphs: [T('copilot.a.simple.riskNone')],
+          cites: ['plan'],
+          followups: ['setup', 'actions']
+        };
+      }
+      var top = a.risks && a.risks.length ? T(a.risks[0].key) : null;
+      return {
+        paragraphs: [top
+          ? T('copilot.a.simple.risk', { s: p.stopText, risk: top })
+          : T('copilot.a.simple.riskOnly', { s: p.stopText })],
+        cites: ['plan', 'risks'],
+        followups: ['setup', 'actions']
+      };
+    },
+    trend: function (a) {
+      var f = a.facts || {};
+      if (!U.isNum(f.sma20) || !U.isNum(f.price)) {
+        return { paragraphs: [T('copilot.a.trend.none')], cites: ['context'], followups: ['levels', 'risk'] };
+      }
+      return {
+        paragraphs: [T('copilot.a.simple.trend', {
+          trend: T(a.trend ? a.trend.key : 'trend.mixed'),
+          d: fmtPct((f.price / f.sma20 - 1) * 100, true),
+          sma: f.sma20Text,
+          rsi: f.rsiText || '—'
+        })],
+        cites: ['context'],
+        followups: ['levels', 'risk']
+      };
+    },
+    volatility: function (a) {
+      var f = a.facts || {};
+      return {
+        paragraphs: [T('copilot.a.simple.vol', {
+          vol: f.vol30Text || '—',
+          atr: f.atrText || '—',
+          range: f.typicalRangeText || '—'
+        })],
+        cites: ['context'],
+        followups: ['risk', 'setup']
+      };
+    },
+    volume: function (a, plan) {
+      var f = a.facts || {};
+      var check = ((plan && plan.checks) || []).filter(function (c) { return c.key === 'plan.check.volume'; })[0];
+      return {
+        paragraphs: [U.isNum(f.relVol)
+          ? T('copilot.a.simple.volume', {
+            rv: f.relVolText,
+            state: check
+              ? T(check.ok ? 'copilot.a.volume.yes' : 'copilot.a.volume.no')
+              : T('sim.notSet')
+          })
+          : T('copilot.a.volume.none')],
+        cites: ['snapshot', 'plan'],
+        followups: ['setup', 'risk']
+      };
+    },
+    scenario: function (a) {
+      var list = (a.scenarios || []).map(function (sc) {
+        return T(sc.titleKey, sc.params);
+      }).join('; ');
+      return {
+        paragraphs: [list ? T('copilot.a.simple.scenario', { list: list }) : T('copilot.a.scenario.none')],
+        cites: ['scenarios'],
+        followups: ['risk', 'levels']
+      };
+    },
+    evidence: function (a) {
+      var ev = a.evidence || {};
+      var out = [];
+      if (a.lean) out.push(simpleLean(a));
+      out.push(T('copilot.a.evidence.bull', {
+        list: (ev.bull || []).slice(0, 1).map(function (e) { return T(e.key, e.params); }).join(' · ') || '—'
+      }));
+      out.push(T('copilot.a.evidence.bear', {
+        list: (ev.bear || []).slice(0, 1).map(function (e) { return T(e.key, e.params); }).join(' · ') || '—'
+      }));
+      return { paragraphs: out, cites: ['cases'], followups: ['buySell', 'risk'] };
+    },
+    chart: function (a) {
+      var m = a.meta || {};
+      var f = a.facts || {};
+      var chart = a.chart || {};
+      var closes = chart.closes || [];
+      var lastClose = closes.length ? closes[closes.length - 1] : null;
+      var out = [
+        T('copilot.a.chart.window', {
+          n: m.barCount,
+          interval: T('an.interval.' + (m.interval === 'intraday' ? 'intraday' : 'daily')),
+          price: U.isNum(lastClose) ? fmtP(lastClose) : (f.priceText || fmtP(f.price))
+        }),
+        T('copilot.a.chart.range', {
+          lo: f.rangeLowText || '—', hi: f.rangeHighText || '—',
+          dd: f.drawdownText || '—', fromLow: f.fromLowText || '—'
+        })
+      ];
+      return { paragraphs: out, cites: ['snapshot', 'levels'], followups: ['levels', 'trend'] };
+    },
+    image: function (a, plan, opts) {
+      var scan = opts && opts.chartScan;
+      if (!scan || !scan.ok) {
+        return { paragraphs: [T('copilot.a.image.none')], cites: [], followups: ['chart', 'levels'] };
+      }
+      var lv = scan.levels || {};
+      return {
+        paragraphs: [
+          T('copilot.a.image.shape', {
+            type: scanType(scan),
+            dir: scanDir(scan),
+            pos: Math.round(clampPct(scan.positionPct)),
+            conf: scanConf(scan)
+          }),
+          T('copilot.a.image.levels', {
+            r: Math.round(clampPct(lv.resistancePct)),
+            rt: lv.resistanceTouches || 0,
+            s: Math.round(clampPct(lv.supportPct)),
+            st: lv.supportTouches || 0
+          })
+        ],
+        cites: [],
+        followups: ['chart', 'risk']
+      };
+    },
+    data: function (a, plan) {
+      var p = plan || {};
+      var m = a.meta || {};
+      return {
+        paragraphs: [
+          T('copilot.a.data.source', {
+            provider: T('src.' + (m.provider || 'sample') + '.name'),
+            time: U.fmtDateTime(m.retrievedAt, lang())
+          }),
+          T('copilot.a.data.mode', { mode: T(p.dataKey || 'plan.data.last') })
+        ],
+        cites: ['sources'],
+        followups: ['chart', 'setup']
+      };
+    },
+    summary: function (a, plan) {
+      var p = plan || {};
+      var out = [brief(a, p).headline, simpleLevels(a)];
+      if (p.side === 'long' || p.side === 'short') {
+        out.push(T(p.actionKey || 'plan.act.noEdge', p.actionParams || {}));
+      }
+      return { paragraphs: out, cites: ['snapshot', 'plan', 'levels'], followups: ['buySell', 'risk'] };
+    },
+    simple: simpleGeneric,
+    fallback: simpleGeneric
+  };
+
   var RESOLVERS = {
+    buySell: buySellAnswer,
     setup: setupAnswer,
     actions: actionsAnswer,
     exits: exitsAnswer,
@@ -844,15 +1259,18 @@
     plan = plan || {};
     opts = opts || {};
     var id = detect(q);
+    var simple = id === 'simple' || wantsSimple(q);
     var simKey = id === 'actions' ? simSignature(opts.simulation || plan.simulation)
       : id === 'scenario' ? simSignature(plan.simulation) : '';
-    var key = id + '|' + lang() + '|' + scanSignature(opts.chartScan) + '|' + simKey;
+    var key = id + '|' + (simple ? 's' : 'n') + '|' + lang() + '|' + scanSignature(opts.chartScan) + '|' + simKey;
     return nested(ANSWER_CACHE, a, plan, key, function () {
-      var res = RESOLVERS[id](a, plan, opts);
+      var res = simple ? SIMPLE_RESOLVERS[id](a, plan, opts) : RESOLVERS[id](a, plan, opts);
+      var baseTitleKey = 'copilot.intent.' + id;
+      var titleKey = simple && id !== 'simple' ? 'copilot.simple.title' : baseTitleKey;
       return {
         id: id,
-        titleKey: 'copilot.intent.' + id,
-        title: T('copilot.intent.' + id),
+        titleKey: titleKey,
+        title: T(titleKey, titleKey === 'copilot.simple.title' ? { title: T(baseTitleKey) } : {}),
         paragraphs: res.paragraphs.filter(function (p) { return !!p; }),
         cites: res.cites || [],
         followups: res.followups || []

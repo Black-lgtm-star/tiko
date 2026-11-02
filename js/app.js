@@ -115,6 +115,7 @@
           '<nav class="appnav">' +
             '<a href="#/" data-nav="dashboard">' + U.esc(T('nav.dashboard')) + '</a>' +
             '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
+            '<a href="#/brokers" data-nav="brokers">' + U.esc(T('nav.brokers')) + '</a>' +
             '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
           '</nav>' +
           '<div class="header-actions">' +
@@ -257,7 +258,7 @@
   }
 
   function markNav(routeName) {
-    var target = routeName === 'settings' ? 'settings' : routeName === 'markets' ? 'markets' : 'dashboard';
+    var target = ['settings', 'markets', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
     U.$$('.appnav a[data-nav]', document).forEach(function (a) {
       if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -280,6 +281,7 @@
     }
     if (path === '/settings') return { name: 'settings', params: params };
     if (path === '/markets') return { name: 'markets', params: params };
+    if (path === '/brokers') return { name: 'brokers', params: params };
     var m = path.match(/^\/analysis\/(.+)$/);
     if (m) {
       params.symbol = decodeURIComponent(m[1]);
@@ -292,6 +294,7 @@
     if (route.name === 'analysis') return (route.params.symbol || T('an.crumb')) + ' · ' + T('app.name');
     if (route.name === 'settings') return T('set.title') + ' · ' + T('app.name');
     if (route.name === 'markets') return T('nav.markets') + ' · ' + T('app.name');
+    if (route.name === 'brokers') return T('nav.brokers') + ' · ' + T('app.name');
     return T('app.name') + ' — ' + T('app.promise');
   }
 
@@ -305,6 +308,7 @@
   }
 
   function renderRoute(keepScroll) {
+    if (TA.theme) TA.theme.apply(TA.store.settings().theme);
     if (!TA.store.settings().onboarded) { showOnboarding(); return; }
     if (!shellMounted || !document.getElementById('main')) mountShell();
 
@@ -316,6 +320,7 @@
     if (route.name === 'analysis') TA.views.analysis.render(main, route.params);
     else if (route.name === 'settings') TA.views.settings.render(main);
     else if (route.name === 'markets') TA.views.dashboard.renderMarkets(main);
+    else if (route.name === 'brokers') TA.views.brokers.render(main);
     else TA.views.dashboard.render(main);
 
     document.title = titleFor(route);
@@ -356,6 +361,13 @@
     TA.app.refresh({ keepScroll: true });
   }
 
+  function setTheme(pref) {
+    var next = TA.theme.normalize(pref);
+    TA.store.updateSettings({ theme: next });
+    TA.theme.apply(next);
+    return next;
+  }
+
   TA.app = {
     analysisUrl: analysisUrl,
     openAnalysis: openAnalysis,
@@ -365,10 +377,12 @@
     },
     refresh: refresh,
     rerender: function () { refresh({ keepScroll: true }); },
-    setLanguage: setLanguage
+    setLanguage: setLanguage,
+    setTheme: setTheme
   };
 
   function boot() {
+    if (TA.theme) TA.theme.start();
     TA.i18n.set(TA.store.settings().language);
     ui.initGlossary();
     if (TA.marketNotifications) TA.marketNotifications.start();

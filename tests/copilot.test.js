@@ -160,6 +160,7 @@ const STATE_CASES = [
 ];
 
 const QUESTIONS = {
+  buySell: 'Should I buy or sell?',
   setup: 'What is the setup now?',
   actions: 'What should I do on this side?',
   exits: 'Where should my stop loss and take profit be?',
@@ -173,6 +174,7 @@ const QUESTIONS = {
   chart: 'What does this chart show?',
   data: 'How fresh is the data?',
   summary: 'Give me a quick summary',
+  simple: 'Explain this simply',
   fallback: 'hello there'
 };
 
@@ -199,7 +201,12 @@ test('English questions route to the right intent', () => {
     assert.equal(TA.copilot.detect(QUESTIONS[id]), id, QUESTIONS[id]);
   });
   assert.equal(TA.copilot.detect('What happens if price breaks resistance?'), 'scenario');
-  assert.equal(TA.copilot.detect('Should I buy or sell?'), 'setup');
+  assert.equal(TA.copilot.detect('Should I buy or sell?'), 'buySell');
+  assert.equal(TA.copilot.detect('Is it a buy here?'), 'buySell');
+  assert.equal(TA.copilot.detect('Long or short?'), 'buySell');
+  assert.equal(TA.copilot.detect('Explain this simply'), 'simple');
+  assert.equal(TA.copilot.detect('Keep it simple: where are the key levels?'), 'levels');
+  assert.equal(TA.copilot.detect('Should I buy or sell, in simple terms?'), 'buySell');
   assert.equal(TA.copilot.detect('What happens if I buy?'), 'actions');
   assert.equal(TA.copilot.detect('How do I manage this trade?'), 'actions');
 });
@@ -277,6 +284,7 @@ test('answers and briefs are cached per analysis, plan and language', () => {
 test('Spanish questions route to the same intents', () => {
   TA.i18n.set('es');
   const cases = [
+    ['¿Debo comprar o vender?', 'buySell'],
     ['¿Cuál es la situación ahora?', 'setup'],
     ['¿Qué hago en este lado?', 'actions'],
     ['¿Dónde deberían estar mi stop y mi objetivo?', 'exits'],
@@ -291,6 +299,9 @@ test('Spanish questions route to the same intents', () => {
     ['¿Qué muestra el gráfico?', 'chart'],
     ['¿Qué tan frescos son los datos?', 'data'],
     ['Resumen rápido', 'summary'],
+    ['Explícalo simple', 'simple'],
+    ['¿Debo comprar o vender, en simple?', 'buySell'],
+    ['¿Dónde están los niveles clave, en simple?', 'levels'],
     ['hola', 'fallback']
   ];
   cases.forEach(([q, id]) => assert.equal(TA.copilot.detect(q), id, q));
@@ -336,6 +347,105 @@ test('setup answer repeats the plan and the confirmation count', () => {
   assert.ok(text.indexOf('$ 101.00') >= 0, text);
   assert.ok(text.indexOf('$ 98.00') >= 0, text);
   assert.ok(text.indexOf('4 of 4 confirmation checks pass') >= 0, text);
+});
+
+test('buy or sell answer explains the evidence, the plan and the checklist', () => {
+  const ans = answer(QUESTIONS.buySell);
+  assert.equal(ans.id, 'buySell');
+  assert.equal(ans.title, 'Buy or sell');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('does not tell you to buy or sell') >= 0, text);
+  assert.ok(text.indexOf('leans bullish') >= 0, text);
+  assert.ok(text.indexOf('High confidence') >= 0, text);
+  assert.ok(text.indexOf('bullish score 5, bearish score 2') >= 0, text);
+  assert.ok(text.indexOf('biases Buy / Long') >= 0, text);
+  assert.ok(text.indexOf('wait for the $ 101.00 trigger') >= 0, text);
+  assert.ok(text.indexOf('enter at $ 101.00') >= 0, text);
+  assert.ok(text.indexOf('invalidation at $ 98.00') >= 0, text);
+  assert.ok(text.indexOf('first target reference at 1.7 : 1') >= 0, text);
+  assert.ok(text.indexOf('$ 106.00') >= 0, text);
+  assert.ok(text.indexOf('Confirmation checklist') >= 0, text);
+  assert.ok(text.indexOf('does not pass') < 0, 'all four checks pass on the base read');
+  assert.ok(text.indexOf('Bullish evidence') >= 0, text);
+  assert.ok(text.indexOf('Bearish evidence') >= 0, text);
+  assert.ok(text.indexOf('What would change the call') >= 0, text);
+  assert.ok(text.indexOf('not advice') >= 0, text);
+  assert.deepEqual(cites(ans), ['plan', 'levels', 'cases']);
+  assert.deepEqual([...ans.followups], ['actions', 'exits', 'risk']);
+});
+
+test('buy or sell answer names the checks that fail', () => {
+  const ans = answer(QUESTIONS.buySell, {
+    facts: { relVol: 0.9, relVolText: '0.90×' }
+  });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Volume above average (0.90×): does not pass') >= 0, text);
+  assert.ok(text.indexOf('Trend aligned (SMA20 $ 98.00): passes') >= 0, text);
+});
+
+test('buy or sell answer warns against chasing an extended plan', () => {
+  const ans = answer(QUESTIONS.buySell, {
+    facts: { price: 104 },
+    nearestResistance: { price: 98, priceText: '$ 98.00' },
+    nextResistance: { price: 106, priceText: '$ 106.00' }
+  });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Buy / Long setup is extended') >= 0, text);
+  assert.ok(text.indexOf('would be chasing') >= 0, text);
+  assert.ok(text.indexOf('$ 98.00 trigger') >= 0, text);
+});
+
+test('buy or sell answer stays in practice mode on sample data', () => {
+  const ans = answer(QUESTIONS.buySell, { meta: { dataMode: 'sample' } });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('practice only') >= 0, text);
+  assert.ok(text.indexOf('nothing actionable') >= 0, text);
+  assert.ok(text.indexOf('through the trigger') < 0, 'sample data must not read as an active break');
+});
+
+test('buy or sell answer offers both conditional sides when the read is neutral', () => {
+  const ans = answer(QUESTIONS.buySell, {
+    lean: { dir: 'neutral', confidence: 'high', ratio: 0, total: 10 },
+    evidence: { bull: [], bear: [], bullScore: 0, bearScore: 0 }
+  });
+  assert.equal(ans.id, 'buySell');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('neither buying nor selling') >= 0, text);
+  assert.ok(text.indexOf('Buy / Long side from $ 100.00') >= 0, text);
+  assert.ok(text.indexOf('Sell / Short side from $ 100.00') >= 0, text);
+  assert.ok(text.indexOf('not advice') >= 0, text);
+  assert.ok(text.indexOf('biases Buy') < 0, 'no side should be claimed');
+});
+
+test('explain simply returns a plain page summary', () => {
+  const ans = answer(QUESTIONS.simple);
+  assert.equal(ans.id, 'simple');
+  assert.equal(ans.title, 'In simple terms');
+  assert.equal(ans.paragraphs.length, 2);
+  assert.ok(ans.paragraphs[0].indexOf('The plan is conditional') >= 0, ans.paragraphs[0]);
+  assert.equal(ans.paragraphs[1], 'Support $ 95.00, resistance $ 101.00.');
+});
+
+test('simplified answers shorten any topic without changing the facts', () => {
+  const ans = answer('Where are the key levels, simply?');
+  assert.equal(ans.id, 'levels');
+  assert.equal(ans.title, 'Key levels — simple');
+  assert.equal(ans.paragraphs[0], 'Support $ 95.00, resistance $ 101.00.');
+  assert.ok(ans.paragraphs[1].indexOf('50% up its 120-bar range') >= 0, ans.paragraphs[1]);
+  assert.equal(ans.paragraphs.length, 2);
+});
+
+test('simplified buy or sell answer keeps the plan but trims the detail', () => {
+  const ans = answer('Should I buy or sell, in simple terms?');
+  assert.equal(ans.id, 'buySell');
+  assert.equal(ans.title, 'Buy or sell — simple');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Evidence leans bullish (High confidence).') >= 0, text);
+  assert.ok(text.indexOf('Buy / Long. Plan: a long entry only on a close above $ 101.00') >= 0, text);
+  assert.ok(text.indexOf('Entry $ 101.00, stop $ 98.00, target $ 106.00 (1.7 : 1).') >= 0, text);
+  assert.ok(text.indexOf('not advice or a prediction') >= 0, text);
+  assert.ok(text.indexOf('Confirmation checklist') < 0, 'simple answers skip the checklist');
+  assert.equal(ans.paragraphs.length, 4);
 });
 
 test('actions answer turns the selected side into conditional steps', () => {
@@ -546,6 +656,14 @@ test('Spanish copy resolves through the locale', () => {
   const ans = TA.copilot.answer('¿Dónde están los niveles clave?', ana(), plan({}, 'es'));
   assert.equal(ans.title, 'Niveles clave');
   assert.ok(ans.paragraphs.join(' ').indexOf('El soporte más cercano') >= 0);
+  const bs = TA.copilot.answer('¿Debo comprar o vender?', ana(), plan({}, 'es'));
+  assert.equal(bs.title, 'Comprar o vender');
+  assert.ok(bs.paragraphs.join(' ').indexOf('Boom no te dice si comprar o vender') >= 0);
+  const simple = TA.copilot.answer('¿Dónde están los niveles clave, en simple?', ana(), plan({}, 'es'));
+  assert.equal(simple.title, 'Niveles clave — simple');
+  assert.equal(simple.paragraphs[0], 'Soporte $ 95.00, resistencia $ 101.00.');
+  assert.equal(TA.copilot.question('buySell'), '¿Debo comprar o vender?');
+  assert.equal(TA.copilot.question('simple'), 'Explícalo simple');
   assert.equal(TA.copilot.question('setup'), '¿Cuál es la situación ahora?');
   TA.i18n.set('en');
 });

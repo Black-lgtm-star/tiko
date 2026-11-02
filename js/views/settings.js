@@ -57,6 +57,7 @@
                 return '<option value="' + U.attr(l.code) + '"' + (s.language === l.code ? ' selected' : '') + '>' + U.esc(l.label) + '</option>';
               }).join('') +
             '</select><div class="help">' + U.esc(T('set.language.note')) + '</div></div>' +
+          chipField(T('set.theme'), T('set.theme.hint'), 'theme', ['dark', 'light', 'system'], s.theme || 'dark', function (v) { return T('set.theme.' + v); }) +
         '</div>' +
       '</div>' +
       '</section>';
@@ -208,6 +209,9 @@
           }
           TA.store.updateSettings(makePatch(group, list));
           paintGroup(root, group, list);
+        } else if (group === 'theme') {
+          TA.app.setTheme(value);
+          paintGroup(root, group, value);
         } else {
           TA.store.updateSettings(makePatch(group, value));
           paintGroup(root, group, value);

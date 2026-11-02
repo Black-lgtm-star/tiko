@@ -563,6 +563,11 @@
       '<div class="market-coverage-grid"><div><b>' + U.esc(T('markets.stocks')) + '</b><p class="tiny muted">NYSE · Nasdaq · NYSE Arca</p></div>' +
       '<div><b>' + U.esc(T('markets.crypto')) + '</b><p class="tiny muted">' + U.esc(T('markets.cryptoDesc')) + '</p></div>' +
       '<div><b>' + U.esc(T('markets.fx')) + '</b><p class="tiny muted">' + U.esc(T('markets.fxDesc')) + '</p></div></div></section>' +
+      '<section class="card span-12 edge-cyan broker-entry"><div class="card-head">' +
+        '<div><h2>' + ui.icon('scale', 14) + U.esc(T('markets.brokers.title')) + '</h2>' +
+        '<p class="tiny muted">' + U.esc(T('markets.brokers.lede')) + '</p></div>' +
+        '<a class="btn btn-sm btn-cyan" href="#/brokers">' + U.esc(T('markets.brokers.cta')) + ui.icon('arrowRight', 14) + '</a>' +
+      '</div><p class="tiny muted broker-entry-note">' + U.esc(T('markets.brokers.note')) + '</p></section>' +
       stockDirectoryCard() + forexCard() +
       '<section class="card span-12 edge-violet"><div class="card-head"><h2>' + U.esc(T('markets.currencies')) + '</h2>' +
       '<div class="market-rate-tools"><label class="tiny muted">' + U.esc(T('dash.fx.source')) +
