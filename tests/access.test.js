@@ -123,6 +123,44 @@ test('legacy sessions stay valid and carry no role', async () => {
   assert.deepEqual(await info.json(), { role: null });
 });
 
+test('preview trust mode opens the app only behind VERCEL_ENV=preview', async () => {
+  const saved = {
+    env: process.env.VERCEL_ENV,
+    open: process.env.TIKO_PREVIEW_OPEN,
+    key: process.env.TIKO_OWNER_KEY
+  };
+  process.env.VERCEL_ENV = 'preview';
+  delete process.env.TIKO_PREVIEW_OPEN;
+  try {
+    const gated = await call('/analysis');
+    assert.equal(gated.status, 303);
+
+    process.env.TIKO_PREVIEW_OPEN = '1';
+    process.env.TIKO_OWNER_KEY = 'preview-owner-key-0123456789';
+
+    assert.equal(await call('/analysis'), undefined);
+    const session = await call('/api/session');
+    assert.deepEqual(await session.json(), { role: 'owner' });
+    const admin = await call('/admin');
+    assert.equal(admin.status, 200);
+    assert.match(await admin.text(), /Generate code/);
+    const logout = await call('/logout');
+    assert.equal(logout.status, 200);
+    assert.match(await logout.text(), /Vercel account access/);
+
+    process.env.VERCEL_ENV = 'production';
+    const blocked = await call('/analysis');
+    assert.equal(blocked.status, 303);
+    const denied = await call('/api/session');
+    assert.equal(denied.status, 401);
+  } finally {
+    [['VERCEL_ENV', saved.env], ['TIKO_PREVIEW_OPEN', saved.open], ['TIKO_OWNER_KEY', saved.key]].forEach(function (pair) {
+      if (pair[1] === undefined) delete process.env[pair[0]];
+      else process.env[pair[0]] = pair[1];
+    });
+  }
+});
+
 test('tampered, expired and malformed sessions are rejected', async () => {
   const login = await call('/login', post(PASSWORD, '/'));
   const value = token(login);

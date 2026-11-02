@@ -59,6 +59,15 @@
             '</select><div class="help">' + U.esc(T('set.language.note')) + '</div></div>' +
           chipField(T('set.theme'), T('set.theme.hint'), 'theme', ['dark', 'light', 'system'], s.theme || 'dark', function (v) { return T('set.theme.' + v); }) +
         '</div>' +
+        '<div class="form-grid" style="margin-top:22px">' +
+          '<div class="field"><label for="set-account-size">' + U.esc(T('profile.accountSize')) + '</label>' +
+            '<input id="set-account-size" class="input" type="number" min="1" step="any" inputmode="decimal" data-set-account value="' + U.attr(s.accountSize || 10000) + '" />' +
+          '</div>' +
+          '<div class="field"><label for="set-risk-pct">' + U.esc(T('profile.riskTrade')) + '</label>' +
+            '<input id="set-risk-pct" class="input" type="number" min="0.1" max="100" step="any" inputmode="decimal" data-set-risk value="' + U.attr(s.riskPct || 1) + '" />' +
+            '<div class="help">' + U.esc(T('set.sizing.note')) + '</div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '</section>';
   }
@@ -159,7 +168,12 @@
       '</h2></div>' +
       '<div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
         '<p class="small muted" style="margin:0">' + U.esc(T(copy)) + '</p>' +
-        '<a class="btn btn-sm" href="/logout">' + ui.icon('external', 13) + ' ' + U.esc(T('set.access.signout')) + '</a>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          (role === 'owner'
+            ? '<a class="btn btn-sm" href="/admin">' + ui.icon('key', 13) + ' ' + U.esc(T('set.access.codes')) + '</a>'
+            : '') +
+          '<a class="btn btn-sm" href="/logout">' + ui.icon('external', 13) + ' ' + U.esc(T('set.access.signout')) + '</a>' +
+        '</div>' +
       '</div>' +
       '</section>';
   }
@@ -238,6 +252,34 @@
     if (modeSel) modeSel.addEventListener('change', function () {
       TA.store.updateSettings({ dataMode: modeSel.value });
       TA.data.clearCache();
+      ui.toast(T('common.saved'));
+    });
+
+    var accountInput = root.querySelector('[data-set-account]');
+    if (accountInput) accountInput.addEventListener('change', function () {
+      var value = Number(accountInput.value);
+      if (!isFinite(value) || value < 1) {
+        ui.toast(T('plan.size.invalid'));
+        accountInput.value = TA.store.settings().accountSize;
+        return;
+      }
+      value = Math.min(Math.round(value), 1e9);
+      TA.store.updateSettings({ accountSize: value });
+      accountInput.value = value;
+      ui.toast(T('common.saved'));
+    });
+
+    var riskInput = root.querySelector('[data-set-risk]');
+    if (riskInput) riskInput.addEventListener('change', function () {
+      var value = Number(riskInput.value);
+      if (!isFinite(value) || value <= 0) {
+        ui.toast(T('plan.size.invalid'));
+        riskInput.value = TA.store.settings().riskPct;
+        return;
+      }
+      value = Math.min(value, 100);
+      TA.store.updateSettings({ riskPct: value });
+      riskInput.value = value;
       ui.toast(T('common.saved'));
     });
 

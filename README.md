@@ -56,9 +56,10 @@ device-account build, the app folds the signed-in profile back into the shared l
 deletes the stored password hashes and session on first load.
 
 The access request form is the one place data leaves the device: the name, email and note are stored
-in the project's Redis for 14 days and emailed to the owner; access codes are stored as SHA-256
-hashes for 30 days. Nothing else about the visitor is collected, and the request page is the only
-page in the deployment that accepts input.
+in the project's Redis for 14 days and emailed to the owner; KV-issued access codes are stored as
+SHA-256 hashes for 30 days. Owner-issued signed codes contain only an expiry and a signature, so
+they carry no personal data and are never stored. Nothing else about the visitor is collected, and
+the request page is the only public page that collects contact details.
 
 ## Private access gate
 
@@ -78,7 +79,30 @@ Edge Function that runs before any file is read:
   returns `401`, so an unconfigured deployment never serves the app.
 - Eight wrong passwords or codes from one IP in ten minutes lock that IP out for the rest of the window.
 - `/login` and `/request` are the only public pages, with a `default-src 'none'` policy, and every
-  response carries `X-Robots-Tag: noindex, nofollow`.
+  response carries `X-Robots-Tag: noindex, nofollow`. `/admin` and `/admin/review` are owner-only.
+- Staging can delegate sign-in to Vercel. When `VERCEL_ENV` is `preview` and `TIKO_PREVIEW_OPEN` is
+  `1`, requests that already passed Vercel Authentication are treated as the owner, so every device
+  signed into the owner's Vercel account opens the app without a second password. Keep Deployment
+  Protection on in this mode: it is the only gate. Production and local runs ignore the flag.
+
+## Owner-issued member codes
+
+The owner does not need Redis or email to let someone in. Settings shows a **Member codes** button
+to an owner session; it opens `/admin`, which mints codes on the spot:
+
+- A code looks like `TK1-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX` (33 characters). It packs a version byte, a
+  32-bit expiry and a 10-byte HMAC-SHA-256 of that expiry, all signed with `TIKO_OWNER_KEY` and
+  encoded in Crockford-style base32.
+- The owner picks 1, 7, 14 or 30 days. A code works until it expires and can be reused by anyone who
+  has it, which suits a small group rather than one named person.
+- Verification is stateless: the middleware checks the expiry and signature offline, so no KV,
+  Resend or network call is involved, and issues the normal 24-hour member session.
+- Codes cannot be revoked one at a time. Rotating `TIKO_OWNER_KEY` invalidates every issued code
+  and every outstanding review link. KV-issued codes still work alongside signed codes when Redis
+  is configured.
+- `/admin` requires an owner session: members get `403`, guests are sent to `/login`, legacy
+  sessions must sign in again, and submissions must be same-origin. A missing signing key shows an
+  error instead of issuing a weak code.
 
 ## Access requests
 
@@ -105,14 +129,16 @@ the owner to forward.
 | --- | --- |
 | `TIKO_ACCESS_PASSWORD` | Owner password, entered at `/login` |
 | `TIKO_SESSION_SECRET` | Signs the `tiko_access` session cookie |
-| `TIKO_OWNER_KEY` | Signs review links (rotate to invalidate every outstanding link) |
+| `TIKO_OWNER_KEY` | Signs member codes and review links (rotate to invalidate all of them) |
+| `TIKO_PREVIEW_OPEN` | Set to `1` on Preview only: trust Vercel Authentication as the owner (requires Deployment Protection) |
 | `TIKO_OWNER_EMAIL` | Where access requests and review links are sent |
 | `RESEND_API_KEY` | Resend key used for both emails |
 | `TIKO_MAIL_FROM` | Optional sender, e.g. `TIKO <access@yourdomain>`; defaults to `onboarding@resend.dev` |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV / Upstash Redis REST credentials |
 
 `TIKO_KV_URL`/`TIKO_KV_TOKEN` and `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` are also read.
-Codes are stored as SHA-256 hashes; the plaintext code is shown on the review page for one day only.
+KV-issued codes are stored as SHA-256 hashes; the plaintext code is shown on the review page for one
+day only. Signed codes from `/admin` need neither service.
 Resend can email the owner without a verified domain, but emailing arbitrary requesters needs one.
 
 To change the owner password, update `TIKO_ACCESS_PASSWORD` in Vercel and redeploy; existing cookies
@@ -140,7 +166,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -164,12 +190,16 @@ reminders, duplicate suppression, disabled groups, notification permission gatin
 copy (12 tests). The quote-proxy suite covers response normalization, intraday session slicing,
 batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). The access
 suite covers password matching, session issue and verification, tampered, expired and malformed
-cookies, logout, redirect sanitizing, the fail-closed setup path and the owner/member role returned
-by `/api/session`, including legacy cookies (12 tests). The access-request
+cookies, logout, redirect sanitizing, the fail-closed setup path, preview trust mode and the
+owner/member role returned by `/api/session`, including legacy cookies (13 tests). The access-request
 suite covers request storage and owner email, the honeypot, email validation, deduplication,
 cross-origin posts, approval, denial, code email and code login, wrong, expired and revoked codes,
 tampered review links, sender failures, throttling and the disabled configuration (10 tests), with
-Redis and Resend replaced by in-memory fakes. The broker-reference suite checks EN/ES copy parity,
+Redis and Resend replaced by in-memory fakes. The owner-code suite covers the owner-only generator,
+guest redirects, member and legacy-session refusals, code shape and expiry, member login and reuse,
+offline issuing without KV or mail, tampered, expired and foreign-key codes, rotation, duration and
+origin validation, and the missing-key path (9 tests). The broker-reference suite checks EN/ES copy
+parity,
 that every broker key resolves, the six-region and 20-question scope, the official-register list,
 local checklist persistence and reset, and a full render smoke test (5 tests). The theme suite
 covers the dark default, preference normalization, system resolution against the device setting,
@@ -183,7 +213,7 @@ account call, the canTrade gate, bracket-order construction and its crypto/short
 rejections, the explicit-confirmation gate, the POST payload and upstream error mapping (12 tests),
 with fetch and session storage injected. The session suite covers the one-shot role lookup,
 owner/member mapping, unknown and missing roles, rejected lookups and the no-fetch fallback
-(5 tests). All twelve suites total 152 tests.
+(5 tests). All thirteen suites total 162 tests.
 
 ## What is in the MVP
 
@@ -283,7 +313,7 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
   scheduled on this device while TIKO is open; browser notifications are optional and need
   permission. Crypto trades continuously, so it has no daily open or close.
 - **Settings** — profile chips, appearance (dark, light or system), default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
-  optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
+  sizing account and risk per trade, optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
 - **Feedback and notes** — helpful / inaccurate / missing context, plus a free-text comment and a
   per-symbol note. Stored locally, exportable as JSON.
 

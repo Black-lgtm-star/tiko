@@ -19,6 +19,7 @@
     user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 21v-1a7 7 0 0 1 14 0v1Z"/>',
     warning: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
+    key: '<circle cx="8" cy="16" r="3.5"/><path d="m11 13 8-8"/><path d="m16 8 2.5 2.5"/><path d="m18.5 5.5 2 2"/>',
     external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
     check: '<path d="m4 12.5 5 5L20 6.5"/>',
     up: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',

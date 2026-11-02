@@ -1,4 +1,4 @@
-/* Private access gate: owner password and personal member codes, enforced before any file is served. */
+/* Private access gate: owner password and signed member codes, enforced before any file is served. */
 
 const COOKIE = 'tiko_access';
 const MAX_AGE = 60 * 60 * 24 * 7;
@@ -12,6 +12,11 @@ const REQUEST_TTL = 60 * 60 * 24 * 14;
 const REQUEST_WINDOW = 60 * 60 * 1000;
 const MAX_REQUESTS = 5;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const CODE_PREFIX = 'TK1';
+const CODE_VERSION = 1;
+const CODE_BYTES = 15;
+const CODE_MAC_BYTES = 10;
+const CODE_DAYS = [1, 7, 14, 30];
 const encoder = new TextEncoder();
 const fails = new Map();
 const requestHits = new Map();
@@ -28,7 +33,16 @@ export default async function middleware(req) {
     return loginPage(url);
   }
 
-  if (path === '/logout' || path === '/logout/') return logout(url);
+  if (path === '/logout' || path === '/logout/') {
+    if (previewOpen()) {
+      return gateResponse('Private access',
+        '<h1>Vercel account access</h1>' +
+        '<p>Staging trusts your Vercel account, so there is no TIKO password to clear. ' +
+        'Sign out of Vercel to end access on this device.</p>' +
+        '<p class="note"><a href="/">Back to TIKO</a></p>');
+    }
+    return logout(url);
+  }
 
   if (path === '/request' || path === '/request/') {
     if (req.method === 'POST') return requestSubmit(req, url);
@@ -38,6 +52,11 @@ export default async function middleware(req) {
   if (path === '/admin/review' || path === '/admin/review/') {
     if (req.method === 'POST') return reviewSubmit(req, url);
     return reviewPage(url);
+  }
+
+  if (path === '/admin' || path === '/admin/') {
+    if (req.method === 'POST') return adminCodesSubmit(req, url);
+    return adminCodesPage(req, url);
   }
 
   if (path === '/api/session' || path === '/api/session/') {
@@ -59,6 +78,11 @@ export default async function middleware(req) {
 
 function configured() {
   return Boolean(process.env.TIKO_ACCESS_PASSWORD && process.env.TIKO_SESSION_SECRET);
+}
+
+/* Only a preview deployment behind Vercel Authentication may trust the platform account. */
+function previewOpen() {
+  return process.env.VERCEL_ENV === 'preview' && process.env.TIKO_PREVIEW_OPEN === '1';
 }
 
 function secret() {
@@ -118,6 +142,7 @@ async function issue(maxAge, role) {
 }
 
 async function readSession(req) {
+  if (previewOpen()) return { exp: Math.floor(Date.now() / 1000) + 60, role: 'owner' };
   if (!configured()) return null;
   const token = readCookie(req);
   if (!token) return null;
@@ -328,11 +353,76 @@ function normalizeCode(value) {
   return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function base32Encode(bytes) {
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    value = ((value << 8) | bytes[i]) & 0xffffff;
+    bits += 8;
+    while (bits >= 5) {
+      out += CODE_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += CODE_ALPHABET[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(text) {
+  let bits = 0;
+  let value = 0;
+  const out = new Uint8Array(Math.floor((text.length * 5) / 8));
+  let at = 0;
+  for (let i = 0; i < text.length; i++) {
+    const index = CODE_ALPHABET.indexOf(text.charAt(i));
+    if (index < 0) return null;
+    value = ((value << 5) | index) & 0xffff;
+    bits += 5;
+    if (bits >= 8) {
+      out[at++] = (value >>> (bits - 8)) & 255;
+      bits -= 8;
+    }
+  }
+  if (bits !== 0 || at !== out.length) return null;
+  return out;
+}
+
+async function signedCodeBytes(exp) {
+  const mac = (await ownerSignBytes('code.v1.' + exp)).slice(0, CODE_MAC_BYTES);
+  const bytes = new Uint8Array(CODE_BYTES);
+  bytes[0] = CODE_VERSION;
+  new DataView(bytes.buffer).setUint32(1, exp, false);
+  bytes.set(mac, 5);
+  return bytes;
+}
+
+async function makeSignedCode(days) {
+  const exp = Math.floor(Date.now() / 1000) + days * 86400;
+  const body = base32Encode(await signedCodeBytes(exp));
+  return { code: CODE_PREFIX + '-' + body.match(/.{4}/g).join('-'), exp: exp };
+}
+
+async function signedCodeMatches(input) {
+  if (!process.env.TIKO_OWNER_KEY) return false;
+  const norm = normalizeCode(input);
+  if (!norm.startsWith(CODE_PREFIX)) return false;
+  const body = norm.slice(CODE_PREFIX.length);
+  if (body.length !== 24) return false;
+  const bytes = base32Decode(body);
+  if (!bytes || bytes.length !== CODE_BYTES || bytes[0] !== CODE_VERSION) return false;
+  const exp = new DataView(bytes.buffer).getUint32(1, false);
+  if (exp <= Math.floor(Date.now() / 1000)) return false;
+  const expected = (await ownerSignBytes('code.v1.' + exp)).slice(0, CODE_MAC_BYTES);
+  return sameBytes(bytes.subarray(5), expected);
+}
+
 async function codeRecordKey(value) {
   return 'tiko:code:' + await sha256('code:' + normalizeCode(value));
 }
 
 async function codeMatches(input) {
+  if (await signedCodeMatches(input)) return true;
   if (!codesEnabled()) return false;
   const norm = normalizeCode(input);
   if (norm.length < 8 || norm.length > 24) return false;
@@ -459,7 +549,7 @@ function requestPage(url) {
   if (!requestsEnabled()) {
     return gateResponse('Request access',
       '<h1>Requests are closed</h1>' +
-      '<p>The owner has not opened access requests. Ask them directly for a personal access code.</p>' +
+      '<p>The owner has not opened access requests. Ask them directly for an access code.</p>' +
       '<p class="note"><a href="/login">Back to sign in</a></p>');
   }
   if (url.searchParams.get('sent') === '1') {
@@ -666,6 +756,85 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
+/* ---------------- owner-issued codes ---------------- */
+
+function adminCodeDays(value) {
+  const days = Number(value);
+  return CODE_DAYS.indexOf(days) >= 0 ? days : 0;
+}
+
+function codeExpiry(exp) {
+  return new Date(exp * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
+function adminCodesForm(error) {
+  return '<h1>Member codes</h1>' +
+    '<p>Generate a code and send it to a member. Codes are signed, so they need no database and no email; each one works until it expires.</p>' +
+    (error ? '<div class="error" role="alert">' + esc(error) + '</div>' : '') +
+    '<form method="post" action="/admin">' +
+      '<label for="days">Valid for</label>' +
+      '<select id="days" name="days">' +
+        CODE_DAYS.map(function (days) {
+          return '<option value="' + days + '"' + (days === 7 ? ' selected' : '') + '>' +
+            days + (days === 1 ? ' day' : ' days') + '</option>';
+        }).join('') +
+      '</select>' +
+      '<button type="submit">Generate code</button>' +
+    '</form>' +
+    '<p class="note">Codes can be reused until they expire. Rotating TIKO_OWNER_KEY invalidates every code, along with every review link. ' +
+    '<a href="/">Back to TIKO</a> · <a href="/logout">Sign out</a></p>';
+}
+
+function adminCodeResult(made, days) {
+  return '<h1>Code ready</h1>' +
+    '<p>Send this code to the member. They enter it at <a href="/login">/login</a>.</p>' +
+    '<div class="code">' + esc(made.code) + '</div>' +
+    '<p class="note">Valid for ' + days + (days === 1 ? ' day' : ' days') +
+    ', until ' + esc(codeExpiry(made.exp)) + '. Reusable until it expires; this page is not stored, so copy the code now.</p>' +
+    '<p class="note"><a href="/admin">Generate another</a> · <a href="/">Back to TIKO</a></p>';
+}
+
+async function adminCodesPage(req, url) {
+  const session = await readSession(req);
+  if (!session) return redirect(url, '/login?next=' + encodeURIComponent('/admin'));
+  if (session.role !== 'owner') {
+    return gateResponse('Member codes',
+      session.role
+        ? '<h1>Owner only</h1><p>Member codes are generated by the owner.</p>' +
+          '<p class="note"><a href="/">Back to TIKO</a></p>'
+        : '<h1>Refresh your session</h1><p>This session was issued before owner roles existed. ' +
+          'Sign out and back in to manage member codes.</p><p class="note"><a href="/logout">Sign out</a></p>', 403);
+  }
+  if (!process.env.TIKO_OWNER_KEY) {
+    return gateResponse('Member codes',
+      '<h1>Signing key missing</h1><p>Add TIKO_OWNER_KEY in Vercel, then redeploy.</p>', 500);
+  }
+  return gateResponse('Member codes', adminCodesForm(''));
+}
+
+async function adminCodesSubmit(req, url) {
+  const session = await readSession(req);
+  if (!session) return redirect(url, '/login?next=' + encodeURIComponent('/admin'));
+  if (session.role !== 'owner') {
+    return gateResponse('Member codes',
+      '<h1>Owner only</h1><p>Member codes are generated by the owner.</p>', 403);
+  }
+  if (!process.env.TIKO_OWNER_KEY) {
+    return gateResponse('Member codes',
+      '<h1>Signing key missing</h1><p>Add TIKO_OWNER_KEY in Vercel, then redeploy.</p>', 500);
+  }
+  if (!sameOrigin(req, url)) {
+    return gateResponse('Member codes',
+      '<h1>Blocked</h1><p>That request did not come from this site.</p>', 403);
+  }
+  const form = await req.formData();
+  const days = adminCodeDays(form.get('days'));
+  if (!days) {
+    return gateResponse('Member codes', adminCodesForm('Choose 1, 7, 14 or 30 days.'), 400);
+  }
+  return gateResponse('Member code', adminCodeResult(await makeSignedCode(days), days));
+}
+
 const GATE_CSS =
   ':root{color-scheme:dark}' +
   '*{box-sizing:border-box}' +
@@ -684,9 +853,9 @@ const GATE_CSS =
   '.error{margin-top:16px;padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.45;' +
   'color:#ffc9d3;background:rgba(240,74,96,.12);border:1px solid rgba(240,74,96,.34)}' +
   'label{display:block;margin-top:18px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8b95a7;font-weight:600}' +
-  'input,textarea{display:block;width:100%;margin-top:8px;padding:12px 13px;border-radius:11px;border:1px solid rgba(255,255,255,.14);' +
+  'input,select,textarea{display:block;width:100%;margin-top:8px;padding:12px 13px;border-radius:11px;border:1px solid rgba(255,255,255,.14);' +
   'background:#0c0f18;color:#eef1f7;font:inherit;font-size:15px;outline:none;resize:vertical}' +
-  'input:focus,textarea:focus{border-color:#5670ff;box-shadow:0 0 0 3px rgba(86,112,255,.22)}' +
+  'input:focus,select:focus,textarea:focus{border-color:#5670ff;box-shadow:0 0 0 3px rgba(86,112,255,.22)}' +
   'button{margin-top:18px;width:100%;padding:12px 16px;border:0;border-radius:11px;cursor:pointer;' +
   'background:#eef1f7;color:#0b0d14;font-size:14px;font-weight:650;letter-spacing:.01em}' +
   'button:hover{background:#fff}' +
@@ -701,7 +870,7 @@ const GATE_CSS =
   'font:600 20px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-align:center}' +
   '@media (max-width:420px){.gate{padding:24px 20px 20px}}';
 
-function gateResponse(title, inner) {
+function gateResponse(title, inner, status) {
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow">' +
@@ -711,7 +880,7 @@ function gateResponse(title, inner) {
     '<p class="foot">Informational only — not financial advice.</p>' +
     '</body></html>';
   return new Response(html, {
-    status: 200,
+    status: status || 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
@@ -736,7 +905,7 @@ function loginPage(url) {
   const error = errorText(url.searchParams.get('error'));
   const invite = requestsEnabled()
     ? 'Need access? <a href="/request">Request an invitation</a>. Access codes arrive by email after the owner approves.'
-    : 'The owner signs in with a password. Members need a personal access code.';
+    : 'The owner signs in with a password. Members need an access code from the owner.';
   return gateResponse('Sign in',
     '<h1>Private access</h1>' +
     '<p>This build opens only for people the owner has let in.</p>' +
