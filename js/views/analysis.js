@@ -436,7 +436,9 @@
           }).join('') +
         '</select></label>' +
         '<button type="button" class="btn btn-sm btn-primary" data-sim-run' + (selected ? '' : ' disabled') + '>' +
-          ui.icon('pulse', 13) + ' ' + esc(T('sim.run')) + '</button></div>' +
+          ui.icon('pulse', 13) + ' ' + esc(T('sim.run')) + '</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" data-sim-ask' + (selected ? '' : ' disabled') + '>' +
+          ui.icon('sparkles', 13) + ' ' + esc(T('sim.ask')) + '</button></div>' +
       '<div class="sim-results" data-sim-results aria-live="polite">' + simulationResultsHtml(entry) + '</div>' +
     '</section>';
   }
@@ -676,7 +678,7 @@
         if (input) input.focus();
         return;
       }
-      var item = { q: q, ans: TA.copilot.answer(q, entry.a, entry.plan, { chartScan: entry.chartScan }) };
+      var item = { q: q, ans: TA.copilot.answer(q, entry.a, entry.plan, { chartScan: entry.chartScan, simulation: entry.simulation }) };
       items.push(item);
       if (items.length > max) {
         items.shift();
@@ -689,6 +691,8 @@
         input.focus();
       }
     }
+
+    entry.askCopilot = ask;
 
     function setScanError(key) {
       if (!scanErr) return;
@@ -995,6 +999,12 @@
 
     U.on(card, 'click', '[data-sim-run]', runSimulation);
     U.on(card, 'change', '[data-sim-horizon]', runSimulation);
+    U.on(card, 'click', '[data-sim-ask]', function () {
+      if (!entry.askCopilot) return;
+      entry.askCopilot(T('copilot.q.actions'));
+      var copilot = root.querySelector('[data-copilot]');
+      if (copilot) copilot.scrollIntoView({ block: 'start' });
+    });
 
     U.on(card, 'click', '[data-level-reset]', function () {
       TA.store.clearPlanLevels(levelKey);

@@ -46,12 +46,70 @@ stock directory (`api/stocks.js`) and stock quotes (`api/quote.js`). To publish 
 
 ## Local data
 
-TIKO opens straight into onboarding or the dashboard; there is no sign-in screen or account gate.
-Settings, watchlists, notes, feedback and plan levels stay in this browser's local storage. They are
-not encrypted at rest. The optional Alpha Vantage key is kept in tab storage and cleared when the tab
-ends. If a browser still holds data from the earlier device-account build, the app folds the
-signed-in profile back into the shared local profile and deletes the stored password hashes and
-session on first load.
+TIKO opens straight into onboarding or the dashboard once you are past the site's access gate;
+there are no in-app accounts. Settings, watchlists, notes, feedback and plan levels stay in this
+browser's local storage. They are not encrypted at rest. The optional Alpha Vantage key is kept in
+tab storage and cleared when the tab ends. If a browser still holds data from the earlier
+device-account build, the app folds the signed-in profile back into the shared local profile and
+deletes the stored password hashes and session on first load.
+
+The access request form is the one place data leaves the device: the name, email and note are stored
+in the project's Redis for 14 days and emailed to the owner; access codes are stored as SHA-256
+hashes for 30 days. Nothing else about the visitor is collected, and the request page is the only
+page in the deployment that accepts input.
+
+## Private access gate
+
+The deployment is private. Every page, script and API route passes through `middleware.js`, a Vercel
+Edge Function that runs before any file is read:
+
+- The owner password is stored only as `TIKO_ACCESS_PASSWORD` in Vercel Production; a second secret,
+  `TIKO_SESSION_SECRET`, signs the session cookie. Neither value is in the repository.
+- A correct password sets `tiko_access` — HttpOnly, Secure, SameSite=Lax, seven days. `/logout`
+  clears it, and Settings has a Sign out button.
+- Missing either variable fails closed: every request redirects to `/login?error=setup` and the API
+  returns `401`, so an unconfigured deployment never serves the app.
+- Eight wrong passwords or codes from one IP in ten minutes lock that IP out for the rest of the window.
+- `/login` and `/request` are the only public pages, with a `default-src 'none'` policy, and every
+  response carries `X-Robots-Tag: noindex, nofollow`.
+
+## Access requests
+
+People the owner has not met can ask for access; nobody gets in until the owner approves:
+
+1. A visitor opens `/request` and sends a name (optional), email and note.
+2. The middleware stores the request in Redis and emails the owner with a signed review link.
+   No email or KV database means the form reports that requests are closed; it never half-works.
+3. The owner opens the link and chooses **Approve** or **Deny**. Only approval generates a code.
+   The review link is signed with `TIKO_OWNER_KEY`, expires after seven days, and every action is a
+   POST, so mail scanners cannot approve anyone.
+4. On approval the app emails a personal code (`XXXX-XXXX-XXXX`), valid for 30 days, to the
+   requester. The owner can reissue a fresh code or revoke access from the same link.
+
+Personal-code sessions last 24 hours, so revoking a code takes effect the next day at the latest;
+owner-password sessions last seven days. Requests are deduplicated by email, limited to five per
+address per hour, and protected by a honeypot field and an origin check. If the approval email cannot
+be delivered (for example, no verified sending domain yet), the review page shows the code once for
+the owner to forward.
+
+### Gate environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `TIKO_ACCESS_PASSWORD` | Owner password, entered at `/login` |
+| `TIKO_SESSION_SECRET` | Signs the `tiko_access` session cookie |
+| `TIKO_OWNER_KEY` | Signs review links (rotate to invalidate every outstanding link) |
+| `TIKO_OWNER_EMAIL` | Where access requests and review links are sent |
+| `RESEND_API_KEY` | Resend key used for both emails |
+| `TIKO_MAIL_FROM` | Optional sender, e.g. `TIKO <access@yourdomain>`; defaults to `onboarding@resend.dev` |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV / Upstash Redis REST credentials |
+
+`TIKO_KV_URL`/`TIKO_KV_TOKEN` and `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` are also read.
+Codes are stored as SHA-256 hashes; the plaintext code is shown on the review page for one day only.
+Resend can email the owner without a verified domain, but emailing arbitrary requesters needs one.
+
+To change the password, update `TIKO_ACCESS_PASSWORD` in Vercel and redeploy; existing cookies stay
+valid until they expire. Rotating `TIKO_SESSION_SECRET` signs everyone out.
 
 ## No ads, no third-party scripts
 
@@ -75,7 +133,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -84,22 +142,28 @@ determinism, stop buffers, exit-level suggestions, fixed-fractional sizing and a
 editable stop/take-profit overrides, validation errors, warnings, and EN/ES key coverage (25 tests).
 The copilot suite covers brief headlines for every plan state, EN/ES intent routing with synonym
 and typo tolerance, grounded answers for each topic (including stop-loss/take-profit suggestions for
-an active plan, a directional lean and a neutral read), chart-image answers with and without a
+an active plan, a directional lean and a neutral read), selected-side trade actions with and without
+a simulation, chart-image answers with and without a
 scan, answer caching, sample warnings, fallback scope, citations and follow-ups, determinism, and
-EN/ES key coverage (26 tests). The chart-reader suite covers plot detection, candle and line
+EN/ES key coverage (30 tests). The chart-reader suite covers plot detection, candle and line
 direction, support/resistance touches, flat and choppy trend reads, rejection of non-chart
 screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The
 market-alert suite covers weekday, weekend,
 holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries, pre-close
 reminders, duplicate suppression, disabled groups, notification permission gating and EN/ES alert
 copy (12 tests). The quote-proxy suite covers response normalization, intraday session slicing,
-batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). All five
-suites total 76 tests.
+batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). The access
+suite covers password matching, session issue and verification, tampered, expired and malformed
+cookies, logout, redirect sanitizing and the fail-closed setup path (9 tests). The access-request
+suite covers request storage and owner email, the honeypot, email validation, deduplication,
+cross-origin posts, approval, denial, code email and code login, wrong, expired and revoked codes,
+tampered review links, sender failures, throttling and the disabled configuration (10 tests), with
+Redis and Resend replaced by in-memory fakes. All seven suites total 99 tests.
 
 ## What is in the MVP
 
-- **No sign-in gate** — the app opens directly into onboarding or the dashboard; there are no
-  accounts, passwords or sessions.
+- **No in-app accounts** — once past the shared-password gate, the app opens directly into
+  onboarding or the dashboard; TIKO itself has no user accounts, profiles or in-app passwords.
 - **Local-first storage** — data remains in this browser profile.
 - **Date and time** — a live clock with weekday, date, time and time zone appears in the top bar on
   every screen. The alerts panel shows the exact Eastern Time date and time of the next U.S. stock or
@@ -136,16 +200,22 @@ suites total 76 tests.
   focus). No order is ever placed.
 - **Ask-the-chart copilot** — an on-device assistant that turns the page's own facts into faster
   answers. A live brief summarizes the state, trend, location, momentum and volatility; suggested
-  questions cover the setup, stop loss and take profit, key levels, invalidation, trend, volatility,
-  volume, scenarios, evidence, the chart, and data freshness. You can also drop, paste or choose a
+  questions cover the setup, trade actions, stop loss and take profit, key levels, invalidation,
+  trend, volatility, volume, scenarios, evidence, the chart, and data freshness. You can also drop,
+  paste or choose a
   chart screenshot from a trading app: it is decoded and measured in the page, never uploaded. The
   scanner reports the plot shape — direction, net move, position in range, volatility, trend fit,
   support/resistance touches and candle balance — and the copilot grounds image and chart answers in
   that read. It reads shape only, not ticker, axis values or timeframe, and says so. The
   stop/take-profit answer repeats the
   active plan levels, or derives structure-based suggestions from price, ATR and nearby levels when
-  there is no confirmed setup — one side when the read leans, both when it is neutral. Answers are
-  composed locally from the same facts and fixed rules, cite the sections they come from (select a
+  there is no confirmed setup — one side when the read leans, both when it is neutral. After you
+  choose Buy or Sell, **Ask Boom about this side** turns that selection into ordered conditional
+  steps — trigger or entry, invalidation, first reference target, R:R and risk-based size — and
+  pairs them with the simulation's resampled outcome bands and target-first/stop-first path shares.
+  It states plainly that it does not predict prices: the steps are the plan's conditional rules and
+  the ranges are historical resampling, not calibrated probabilities. Answers are composed locally
+  from the same facts and fixed rules, cite the sections they come from (select a
   citation to jump there), and refresh with the live plan and the selected language. The suggestions
   are conditional estimates, not forecasts. No external model, no network request.
 - **Six lenses** — Day, Swing, Long term, Options, FX & futures, Beginner. They are tailored views of
@@ -245,8 +315,8 @@ plan. `tradeplan.exits` is a pure helper that reuses the same stop and target ru
 levels for a hypothetical position — one side when the lean or the caller picks one, both when the
 read is neutral — and it never marks those suggestions as a confirmed setup. The copilot is
 deterministic too: `copilot.brief` and `copilot.answer` compose copy from those same facts, the
-current plan and local intent rules, so the brief stays in sync with live plan updates and every
-answer traces back to the page. Screenshot reading is local too: the browser decodes the image,
+current plan, the selected side's `simulation.run` output and local intent rules, so the brief stays
+in sync with live plan updates and every answer traces back to the page. Screenshot reading is local too: the browser decodes the image,
 downscales it on a canvas and `chartread.scan` classifies background, ink and candle colors to
 measure the plotted series. The file never leaves the device, and the scanner reports shape only, so
 the copilot labels axis values and timeframe as unread. No LLM is involved and nothing is sent to a

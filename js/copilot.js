@@ -5,11 +5,22 @@
   'use strict';
   var U = TA.util;
 
-  var PROMPTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
-  var INTENTS = ['setup', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'image', 'data', 'summary'];
+  var PROMPTS = ['setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'data', 'scenario'];
+  var INTENTS = ['setup', 'actions', 'exits', 'levels', 'risk', 'trend', 'volatility', 'volume', 'scenario', 'evidence', 'chart', 'image', 'data', 'summary'];
   var CITES = ['plan', 'snapshot', 'context', 'cases', 'levels', 'scenarios', 'risks', 'sources'];
 
   var RULES = [
+    {
+      id: 'actions',
+      words: ['steps', 'checklist', 'manage', 'managing', 'management', 'execute', 'execution', 'siguiente', 'siguientes', 'pasos', 'gestionar', 'ejecutar', 'ejecucion', 'hacer'],
+      phrases: [
+        'what should i do', 'what do i do next', 'what next', 'next steps', 'trade actions',
+        'on this side', 'for this side', 'if i buy', 'if i sell', 'if i go long', 'if i go short',
+        'after i buy', 'after i sell', 'what happens after i',
+        'que hago', 'que deberia hacer', 'si compro', 'si vendo', 'acciones a tomar',
+        'pasos siguientes', 'despues de comprar', 'despues de vender', 'mis pasos'
+      ]
+    },
     {
       id: 'data',
       words: ['data', 'datos', 'source', 'sources', 'fuente', 'fuentes', 'fresh', 'freshness', 'fresco', 'frescos', 'fresca', 'frescas', 'updated', 'update', 'actualizado', 'actualizada', 'live', 'sample', 'sampled', 'synthetic', 'sintetico', 'delayed', 'delay', 'retraso', 'retrasado', 'feed', 'retrieved', 'provider', 'proveedor', 'stale', 'realtime', 'antiguo', 'antiguedad'],
@@ -206,6 +217,16 @@
     ].join('|');
   }
 
+  function simSignature(sim) {
+    if (!sim) return '';
+    if (sim.error) return 'e:' + sim.error + '|' + sim.horizon;
+    return [
+      sim.side, sim.horizon, sim.paths, sim.entry,
+      sim.p10 && sim.p10.movePct, sim.median && sim.median.movePct, sim.p90 && sim.p90.movePct,
+      sim.hasTarget, sim.hasStop, sim.targetFirstPct, sim.stopFirstPct, sim.neitherPct
+    ].join('|');
+  }
+
   function headlineFor(a, plan) {
     var p = plan || {};
     if (p.sample || p.state === 'practice') {
@@ -361,6 +382,113 @@
 
   function rrText(value) {
     return U.isNum(value) ? value.toFixed(1) + ' : 1' : '—';
+  }
+
+  function actionsAnswer(a, plan, opts) {
+    var p = plan || {};
+    var side = p.side === 'long' || p.side === 'short' ? p.side : null;
+    if (!side) {
+      return {
+        paragraphs: [T('copilot.a.actions.noSide')],
+        cites: ['plan'],
+        followups: ['setup', 'exits']
+      };
+    }
+
+    var sim = (opts && opts.simulation) || p.simulation;
+    if (sim && (sim.error || sim.side !== side)) sim = null;
+
+    var actionable = (p.state === 'wait' || p.state === 'triggered' || p.state === 'in_play') &&
+      U.isNum(p.entry) && U.isNum(p.stop);
+    var paragraphs = [
+      T('copilot.a.actions.side', {
+        side: T(side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell'),
+        state: T('plan.state.' + (p.state || 'no_edge')),
+        setup: T('plan.setup.' + (p.setup || 'none'))
+      }),
+      T(p.actionKey || 'plan.act.noEdge', p.actionParams || {})
+    ];
+
+    if (actionable) {
+      var steps = [];
+      if (p.state === 'wait' && U.isNum(p.trigger)) {
+        steps.push(T('copilot.a.actions.wait', { t: p.triggerText, e: p.entryText }));
+      } else {
+        steps.push(T('copilot.a.actions.active', { e: p.entryText }));
+      }
+      steps.push(T('copilot.a.actions.enter', { s: p.stopText }));
+      if (U.isNum(p.target) && U.isNum(p.entry)) {
+        steps.push(T('copilot.a.actions.target', {
+          t: p.targetText,
+          gain: U.fmtPct(Math.abs((p.target / p.entry - 1) * 100), { sign: true }),
+          rr: rrText(p.rr)
+        }));
+      }
+      var sz = TA.store && TA.tradeplan && TA.tradeplan.size
+        ? TA.tradeplan.size(p, TA.store.settings())
+        : null;
+      if (sz) {
+        steps.push(T('copilot.a.actions.size', {
+          loss: U.fmtPrice(sz.maxLoss, '$', lang()),
+          units: U.fmtNum(sz.units, lang(), sz.units >= 1 ? 2 : 6),
+          notional: U.fmtPrice(sz.notional, '$', lang())
+        }));
+      }
+      paragraphs.push(steps.join(' '));
+      if (p.checks && p.checks.length) {
+        var ok = p.checks.filter(function (c) { return c.ok; }).length;
+        paragraphs.push(T('copilot.a.setup.checks', { ok: ok, n: p.checks.length }));
+      }
+    }
+
+    if (sim) {
+      paragraphs.push(T('copilot.a.actions.outcomes', {
+        n: sim.paths, h: sim.horizon,
+        interval: T('an.interval.' + (sim.interval === 'intraday' ? 'intraday' : 'daily')),
+        side: T(side === 'long' ? 'plan.scenario.buy' : 'plan.scenario.sell'),
+        entry: U.fmtPrice(sim.entry, '$', lang()),
+        p10: U.fmtPct(sim.p10.movePct),
+        median: U.fmtPct(sim.median.movePct),
+        p90: U.fmtPct(sim.p90.movePct)
+      }));
+      var hits = [];
+      if (sim.hasTarget) hits.push(T('sim.targetFirst', { pct: U.fmtPct(sim.targetFirstPct, { sign: false }) }));
+      if (sim.hasStop) hits.push(T('sim.stopFirst', { pct: U.fmtPct(sim.stopFirstPct, { sign: false }) }));
+      hits.push(T('sim.neither', { pct: U.fmtPct(sim.neitherPct, { sign: false }) }));
+      paragraphs.push(hits.join(' · ') + '.');
+      if (sim.hypotheticalEntry) paragraphs.push(T('sim.hypothetical'));
+      if (sim.sample) paragraphs.push(T('sim.sample'));
+    } else {
+      var sc = p.scenario;
+      if (!sc && U.isNum(p.entry) && U.isNum(p.stop)) {
+        sc = {
+          entryText: p.entryText,
+          stopText: p.stopText,
+          targetText: p.targetText,
+          gainPct: U.isNum(p.target) ? Math.abs((p.target / p.entry - 1) * 100) : null,
+          lossPct: Math.abs((p.stop / p.entry - 1) * 100),
+          rr: p.rr
+        };
+      }
+      if (sc) {
+        paragraphs.push(T('copilot.a.actions.levels', {
+          e: sc.entryText,
+          t: sc.targetText,
+          gain: U.fmtPct(sc.gainPct, { sign: true }),
+          s: sc.stopText,
+          loss: U.isNum(sc.lossPct) ? U.fmtPct(-sc.lossPct, { sign: true }) : '—',
+          rr: rrText(sc.rr)
+        }));
+        if (actionable) paragraphs.push(T('copilot.a.actions.runSim'));
+      }
+    }
+
+    paragraphs.push(T('copilot.a.actions.caveat'));
+    return {
+      paragraphs: paragraphs,
+      cites: sim ? ['plan', 'scenarios'] : ['plan'],
+      followups: ['exits', 'scenario', 'risk']
+    };
   }
 
   function exitsAnswer(a, plan) {
@@ -695,6 +823,7 @@
 
   var RESOLVERS = {
     setup: setupAnswer,
+    actions: actionsAnswer,
     exits: exitsAnswer,
     levels: levelsAnswer,
     risk: riskAnswer,
@@ -715,7 +844,9 @@
     plan = plan || {};
     opts = opts || {};
     var id = detect(q);
-    var key = id + '|' + lang() + '|' + scanSignature(opts.chartScan);
+    var simKey = id === 'actions' ? simSignature(opts.simulation || plan.simulation)
+      : id === 'scenario' ? simSignature(plan.simulation) : '';
+    var key = id + '|' + lang() + '|' + scanSignature(opts.chartScan) + '|' + simKey;
     return nested(ANSWER_CACHE, a, plan, key, function () {
       var res = RESOLVERS[id](a, plan, opts);
       return {

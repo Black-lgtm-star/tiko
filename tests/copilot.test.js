@@ -134,6 +134,16 @@ const SCAN = {
   trend: { r2: 0.74 }
 };
 
+const SIM = {
+  side: 'long', horizon: 10, paths: 1000, interval: 'daily', entry: 101,
+  p10: { movePct: -4.2, endPrice: 96.76 },
+  median: { movePct: 0.8, endPrice: 101.81 },
+  p90: { movePct: 5.1, endPrice: 106.15 },
+  hasStop: true, hasTarget: true,
+  targetFirstPct: 38, stopFirstPct: 41, neitherPct: 21,
+  hypotheticalEntry: false, sample: false
+};
+
 function cites(ans) {
   return Array.from(ans.cites);
 }
@@ -151,6 +161,7 @@ const STATE_CASES = [
 
 const QUESTIONS = {
   setup: 'What is the setup now?',
+  actions: 'What should I do on this side?',
   exits: 'Where should my stop loss and take profit be?',
   levels: 'Where are the key levels?',
   risk: 'What invalidates this setup?',
@@ -189,6 +200,8 @@ test('English questions route to the right intent', () => {
   });
   assert.equal(TA.copilot.detect('What happens if price breaks resistance?'), 'scenario');
   assert.equal(TA.copilot.detect('Should I buy or sell?'), 'setup');
+  assert.equal(TA.copilot.detect('What happens if I buy?'), 'actions');
+  assert.equal(TA.copilot.detect('How do I manage this trade?'), 'actions');
 });
 
 test('synonyms, typos and screenshot questions still route correctly', () => {
@@ -203,7 +216,9 @@ test('synonyms, typos and screenshot questions still route correctly', () => {
     ['where is my invalidation?', 'risk'],
     ['can you show the moving average?', 'trend'],
     ['what is my exit plan', 'exits'],
-    ['show me the big picture', 'summary']
+    ['show me the big picture', 'summary'],
+    ['what are my next steps', 'actions'],
+    ['¿Qué hago en este lado?', 'actions']
   ];
   cases.forEach(([q, id]) => assert.equal(TA.copilot.detect(q), id, q));
   assert.equal(TA.copilot.detect('What does this chart show?'), 'chart');
@@ -240,6 +255,15 @@ test('answers and briefs are cached per analysis, plan and language', () => {
   assert.equal(first, second);
   assert.equal(TA.copilot.brief(a, p), TA.copilot.brief(a, p));
 
+  const withSim = TA.copilot.answer(QUESTIONS.actions, a, p, { simulation: SIM });
+  const rerun = TA.copilot.answer(QUESTIONS.actions, a, p, {
+    simulation: Object.assign({}, SIM, { median: { movePct: 2 } })
+  });
+  assert.notEqual(withSim, rerun, 'a new simulation invalidates the cached answer');
+  assert.equal(rerun, TA.copilot.answer(QUESTIONS.actions, a, p, {
+    simulation: Object.assign({}, SIM, { median: { movePct: 2 } })
+  }));
+
   TA.i18n.set('es');
   const spanish = TA.copilot.answer(q, a, p);
   assert.notEqual(spanish, first);
@@ -254,6 +278,7 @@ test('Spanish questions route to the same intents', () => {
   TA.i18n.set('es');
   const cases = [
     ['¿Cuál es la situación ahora?', 'setup'],
+    ['¿Qué hago en este lado?', 'actions'],
     ['¿Dónde deberían estar mi stop y mi objetivo?', 'exits'],
     ['¿Dónde están los niveles clave?', 'levels'],
     ['¿Qué invalidaría esta situación?', 'risk'],
@@ -311,6 +336,52 @@ test('setup answer repeats the plan and the confirmation count', () => {
   assert.ok(text.indexOf('$ 101.00') >= 0, text);
   assert.ok(text.indexOf('$ 98.00') >= 0, text);
   assert.ok(text.indexOf('4 of 4 confirmation checks pass') >= 0, text);
+});
+
+test('actions answer turns the selected side into conditional steps', () => {
+  const ans = answer(QUESTIONS.actions);
+  assert.equal(ans.id, 'actions');
+  assert.equal(ans.title, 'Trade actions and outcomes');
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Buy / Long · state: Wait for trigger · structure: Breakout') >= 0, text);
+  assert.ok(text.indexOf('wait for the $ 101.00 trigger') >= 0, text);
+  assert.ok(text.indexOf('invalidation at $ 98.00') >= 0, text);
+  assert.ok(text.indexOf('First reference target $ 106.00') >= 0, text);
+  assert.ok(text.indexOf('If price reaches the target $ 106.00') >= 0, text);
+  assert.ok(text.indexOf('level distances, not forecasts') >= 0, text);
+  assert.ok(text.indexOf('does not predict prices') >= 0, text);
+  assert.deepEqual(cites(ans), ['plan']);
+  assert.deepEqual([...ans.followups], ['exits', 'scenario', 'risk']);
+});
+
+test('actions answer uses the selected-side simulation bands when present', () => {
+  const ans = answer(QUESTIONS.actions, {}, 'en', { simulation: SIM });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('1000 resampled Buy / Long paths over 10 Daily steps from $ 101.00') >= 0, text);
+  assert.ok(text.indexOf('-4.20%') >= 0, text);
+  assert.ok(text.indexOf('+0.80%') >= 0, text);
+  assert.ok(text.indexOf('+5.10%') >= 0, text);
+  assert.ok(text.indexOf('38.00%') >= 0, text);
+  assert.ok(text.indexOf('41.00%') >= 0, text);
+  assert.ok(text.indexOf('21.00%') >= 0, text);
+  assert.ok(text.indexOf('does not predict prices') >= 0, text);
+  assert.deepEqual(cites(ans), ['plan', 'scenarios']);
+});
+
+test('actions answer asks for a side before giving steps', () => {
+  const ans = answer(QUESTIONS.actions, { lean: { dir: 'neutral', confidence: 'high' } });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('Choose Buy or Sell on the plan card first') >= 0, text);
+  assert.deepEqual(cites(ans), ['plan']);
+  assert.deepEqual([...ans.followups], ['setup', 'exits']);
+});
+
+test('actions answer ignores a simulation for the other side', () => {
+  const ans = answer(QUESTIONS.actions, {}, 'en', { simulation: Object.assign({}, SIM, { side: 'short' }) });
+  const text = ans.paragraphs.join(' ');
+  assert.ok(text.indexOf('If price reaches the target') >= 0, text);
+  assert.ok(text.indexOf('1000 resampled') < 0, text);
+  assert.deepEqual(cites(ans), ['plan']);
 });
 
 test('exits answer reports the plan stop and target when a setup exists', () => {

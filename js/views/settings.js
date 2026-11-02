@@ -149,6 +149,16 @@
       '</section>';
   }
 
+  function accessCard() {
+    return '<section class="card span-12" aria-labelledby="set-access">' +
+      '<div class="card-head"><h2 id="set-access">' + ui.icon('shield', 15) + ' ' + U.esc(T('set.access')) + '</h2></div>' +
+      '<div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
+        '<p class="small muted" style="margin:0">' + U.esc(T('set.access.d')) + '</p>' +
+        '<a class="btn btn-sm" href="/logout">' + ui.icon('external', 13) + ' ' + U.esc(T('set.access.signout')) + '</a>' +
+      '</div>' +
+      '</section>';
+  }
+
   function clearCard() {
     return '<section class="card span-12 danger-zone" aria-labelledby="set-clear">' +
       '<div class="card-head"><h2 id="set-clear">' + U.esc(T('set.clear')) + '</h2></div>' +
@@ -348,7 +358,7 @@
         '</div>' +
       '</div>' +
       '<div class="dash-grid">' +
-        profileCard(s) + alertsCard(s) + dataCard(s) + feedbackCard() + aboutCard() + clearCard() +
+        profileCard(s) + alertsCard(s) + dataCard(s) + feedbackCard() + aboutCard() + accessCard() + clearCard() +
       '</div>' +
       '<div class="tiny muted" style="text-align:center;margin-top:26px">' + U.esc(T('dash.footer')) + '</div>' +
       '</div>';

@@ -7,6 +7,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js"
+    "test": "node --test tests/access.test.js tests/access-requests.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js"
   }
 }
