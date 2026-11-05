@@ -24,6 +24,7 @@
           '<p class="hero-sub">' + U.esc(T('app.promise')) + '</p>' +
           '<div class="hero-actions">' +
             '<button class="btn btn-primary hero-cta" data-focus-search>' + U.esc(T('nav.analyze')) + ui.icon('arrowRight', 15) + '</button>' +
+            '<a class="btn btn-cyan" href="#/ideas">' + ui.icon('starFill', 14) + ' ' + U.esc(T('nav.ideas')) + '</a>' +
             '<a class="btn btn-cyan" href="#/markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<button class="btn btn-cyan" data-scroll-how>' + U.esc(T('dash.hero.how')) + '</button>' +
           '</div>' +

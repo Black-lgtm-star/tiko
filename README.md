@@ -1,4 +1,4 @@
-# TIKO — evidence-first market analysis (MVP)
+# TIKOTrade — evidence-first market analysis (MVP)
 
 > Understand the setup, the evidence, and the risks — at a glance.
 
@@ -8,8 +8,9 @@ It also turns that read into a conditional **action plan** — trigger, stop los
 reward-to-risk and risk-based position sizing — recomputed from the live price for crypto. Stop loss
 and take profit can be overridden per symbol and lens, and the plan recalculates live. A paper trade
 bot can run the same rules against a virtual ledger, and an optional Alpaca connection can turn a
-scan candidate into a live order — only after you review and confirm it. It does not issue
-predictions or trade automatically.
+scan candidate into a live order — only after you review and confirm it. An Ideas page ranks those
+same setups with fixed, visible weights so you can see which candidates score best. The app does
+not predict prices or trade automatically.
 
 ## Run it
 
@@ -48,7 +49,7 @@ stock directory (`api/stocks.js`) and stock quotes (`api/quote.js`). To publish 
 
 ## Local data
 
-TIKO opens straight into onboarding or the dashboard once you are past the site's access gate;
+TIKOTrade opens straight into onboarding or the dashboard once you are past the site's access gate;
 there are no in-app accounts. Settings, watchlists, notes, feedback and plan levels stay in this
 browser's local storage. They are not encrypted at rest. The optional Alpha Vantage key is kept in
 tab storage and cleared when the tab ends. If a browser still holds data from the earlier
@@ -133,7 +134,7 @@ the owner to forward.
 | `TIKO_PREVIEW_OPEN` | Set to `1` on Preview only: trust Vercel Authentication as the owner (requires Deployment Protection) |
 | `TIKO_OWNER_EMAIL` | Where access requests and review links are sent |
 | `RESEND_API_KEY` | Resend key used for both emails |
-| `TIKO_MAIL_FROM` | Optional sender, e.g. `TIKO <access@yourdomain>`; defaults to `onboarding@resend.dev` |
+| `TIKO_MAIL_FROM` | Optional sender, e.g. `TIKOTrade <access@yourdomain>`; defaults to `onboarding@resend.dev` |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV / Upstash Redis REST credentials |
 
 `TIKO_KV_URL`/`TIKO_KV_TOKEN` and `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` are also read.
@@ -218,7 +219,7 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
 ## What is in the MVP
 
 - **No in-app accounts** — once past the shared-password gate, the app opens directly into
-  onboarding or the dashboard; TIKO has no synced accounts, avatars or in-app passwords. The profile
+  onboarding or the dashboard; TIKOTrade has no synced accounts, avatars or in-app passwords. The profile
   menu labels an owner-password session as Owner; everything else stays device-local.
 - **Local-first storage** — data remains in this browser profile.
 - **Date and time** — a live clock with weekday, date, time and time zone appears in the top bar on
@@ -253,7 +254,17 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
   **Send order** — there is no automatic or background order path, and tickets are offered only for
   live stock scans less than an hour old. This build sends long stock and
   ETF entries as whole-share market buys with a bracket stop and target; short setups and crypto
-  stay on the paper ledger. TIKO is not affiliated with Alpaca, and the app is not investment advice.
+  stay on the paper ledger. TIKOTrade is not affiliated with Alpaca, and the app is not investment advice.
+- **Ideas page** — `#/ideas` ranks the supported U.S. stocks with the same analysis and plan rules
+  used elsewhere. A fixed weighted score (directional evidence 30, trend 20, reward-to-risk 18,
+  setup state 15, liquidity 8, volume 5, confirmation checks 4) is reduced by visible penalties for
+  sample data, extended or invalidated setups, high volatility, thin liquidity, low-confidence
+  evidence and stretched RSI. Each idea card shows its rank, score, tier, the top two evidence
+  reasons, confirmation checks, plan levels and the main risk, and links to the full plan. The page
+  caps the shortlist at six ideas and two per sector, marks which setups are executable under the
+  plan rules, labels sample data, and lists the weights on the page. The ranking is a transparent
+  review aid built from fixed rules — not a personalized recommendation, a rating service, a price
+  forecast or a guarantee.
 - **Analysis page** — identical seven-section structure for every asset:
   1. Snapshot (price, timeframe, data timestamp)
   2. Market context (trend, volatility, liquidity, momentum, news/event coverage)
@@ -310,7 +321,7 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
   when the U.S. stock session opens, 15 minutes before the close, and at the close (including early
   closes and exchange holidays), plus the Sunday open and Friday close of the forex week. The bell
   panel shows whether each market is open or closed and when the next event is due. Alerts are
-  scheduled on this device while TIKO is open; browser notifications are optional and need
+  scheduled on this device while TIKOTrade is open; browser notifications are optional and need
   permission. Crypto trades continuously, so it has no daily open or close.
 - **Settings** — profile chips, appearance (dark, light or system), default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
   sizing account and risk per trade, optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
@@ -395,12 +406,13 @@ js/data.js          providers, caching, fallback, stock quote proxy, overview/qu
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
 js/bot.js           deterministic paper-trading loop, virtual ledger and stats
+js/recommend.js     deterministic ranking of stock setups: weighted score, tiers, sector cap
 js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate
 js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
-js/views/*.js       onboarding, dashboard, analysis, settings, brokers reference, paper bot
+js/views/*.js       onboarding, dashboard, ideas, analysis, settings, brokers reference, paper bot
 js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
@@ -422,7 +434,11 @@ server by this app. Account size and risk percentage are stored only in `gt.sett
 never sends an order anywhere. The paper bot is pure as well: `bot.scan` takes the current ledger
 and a list of asset/analysis/plan inputs, manages open positions, ranks new candidates by R:R and
 returns a new ledger, events and decisions. The view only fetches market data and stores the
-result under `gt.bot.v1`. The single network path to a broker is `broker.submit`, which is reachable
+result under `gt.bot.v1`. `recommend.rank` is pure too: it scores a list of
+asset/analysis/plan inputs with fixed weights, applies the visible penalties, sorts by score and
+reward-to-risk, caps the shortlist per sector and returns ideas plus deferred candidates. The Ideas
+view only fetches the catalog's daily series and feeds the same analysis, plan and decision
+functions used everywhere else. The single network path to a broker is `broker.submit`, which is reachable
 only from the review dialog after the acknowledgement checkbox is ticked; `broker.submit` itself
 rejects any call whose `deps.confirm` is not exactly `true`. Keys are read from session storage at
 call time and are never written to the ledger, the DOM, logs or a server.
@@ -430,7 +446,7 @@ call time and are never written to the ledger, the DOM, logs or a server.
 Storage keys: `gt.settings.v1` also holds `theme` (`dark`, `light` or `system`), `accountSize` and
 `riskPct` for the sizing calculator.
 
-Routes: `#/`, `#/markets`, `#/bot`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
+Routes: `#/`, `#/ideas`, `#/markets`, `#/bot`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
 correctly from recents or the watchlist.
 
@@ -452,7 +468,7 @@ and Reset all data both clear it.
 only, is never serialized into the ledger or a reset export, and disappears when the tab closes.
 The app holds no server-side copy.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
-Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKO's same-origin `/api/quote` proxy to Yahoo Finance.
+Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKOTrade's same-origin `/api/quote` proxy to Yahoo Finance.
 
 ### Adding a market data provider
 
@@ -495,21 +511,26 @@ still being translated.
 
 ## Scope boundaries
 
-Included: stocks and crypto, on-demand analysis, search, watchlist, recent analyses, local feedback,
-a simulated paper trade bot whose ledger never leaves the browser, and an optional Alpaca connection
-that sends a live order only after per-order confirmation.
-Excluded by design: price or trigger alerts, automatic order execution, portfolio tracking, licensed
+Included: stocks and crypto, on-demand analysis, a ranked Ideas page built from fixed rules, search,
+watchlist, recent analyses, local feedback, a simulated paper trade bot whose ledger never leaves
+the browser, and an optional Alpaca connection that sends a live order only after per-order
+confirmation.
+Excluded by design: personalized advice, brokerage ratings or endorsements, price forecasts,
+price or trigger alerts, automatic order execution, portfolio tracking, licensed
 news/event feeds, options chains, fundamental valuation data. Market-session open/close reminders
-are included because they describe exchange hours, not a trade recommendation. The page named
-"trade bot" runs as a deterministic simulator by default; live orders exist only through the
-explicitly connected Alpaca account, are limited to long stock and ETF brackets, and always require
-the review dialog.
+are included because they describe exchange hours, not a trade recommendation. The Ideas page ranks
+rule-based setups so they can be reviewed side by side; its score is not a probability, a target or
+a promise. The page named "trade bot" runs as a deterministic simulator by default; live orders
+exist only through the explicitly connected Alpaca account, are limited to long stock and ETF
+brackets, and always require the review dialog.
 
 ## Disclaimer
 
 Informational only. This is a description of a market setup produced by fixed rules, not investment
-advice, a recommendation, or a guarantee. The action plan is a conditional read of levels, trend and
-volume — not a recommendation, a forecast, or an order. Data may be delayed, incomplete or — where
+advice, personalized advice, a guarantee or a promise of returns. The Ideas page ranks those setups
+with the weights shown on the page so you can review them; the ranking is not a ratings service, a
+price forecast or a personalized recommendation. The action plan is a conditional read of levels,
+trend and volume — not a forecast or an order. Data may be delayed, incomplete or — where
 labeled — synthetic. The optional Alpaca connection can send a real order to your account only after
-you review and confirm it; you are responsible for every order sent from your account. TIKO is not
+you review and confirm it; you are responsible for every order sent from your account. TIKOTrade is not
 affiliated with Alpaca. You are responsible for your decisions.
