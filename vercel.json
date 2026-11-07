@@ -87,10 +87,10 @@
         { "key": "X-Permitted-Cross-Domain-Policies", "value": "none" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), display-capture=(self), picture-in-picture=(self), interest-cohort=()" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; media-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.coingecko.com https://www.alphavantage.co https://api.frankfurter.dev https://api.alpaca.markets https://paper-api.alpaca.markets; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.coingecko.com https://www.alphavantage.co https://api.frankfurter.dev https://api.alpaca.markets https://paper-api.alpaca.markets; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'"
         }
       ]
     }

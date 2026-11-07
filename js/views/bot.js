@@ -8,7 +8,7 @@
 
   var FALLBACK = ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'];
   var MAX_UNIVERSE = 16;
-  var AUTO_SCAN_MS = 15 * 60 * 1000;
+  var AUTO_SCAN_MS = 60 * 1000;
   var LIVE_SCAN_MAX_MS = 60 * 60 * 1000;
   var BOUND = '__botBound';
   var scanning = false;
@@ -459,6 +459,7 @@
         '<p class="tiny muted bot-scope">' + U.esc(scope) + '</p>' +
       '</div>' +
       '<div class="bot-actions">' +
+        '<a class="btn btn-sm btn-ghost bot-overlay-link" href="#/overlay">' + ui.icon('image', 14) + U.esc(T('overlay.action.open')) + '</a>' +
         (state.enabled
           ? '<button class="btn btn-ghost" type="button" data-bot-toggle>' + ui.icon('close', 14) + U.esc(T('bot.action.pause')) + '</button>'
           : '<button class="btn btn-primary" type="button" data-bot-toggle>' + ui.icon('pulse', 14) + U.esc(T('bot.action.start')) + '</button>') +

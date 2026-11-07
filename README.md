@@ -170,7 +170,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -187,7 +187,10 @@ a simulation, chart-image answers with and without a
 scan, answer caching, sample warnings, fallback scope, citations and follow-ups, determinism, and
 EN/ES key coverage (38 tests). The chart-reader suite covers plot detection, candle and line
 direction, support/resistance touches, flat and choppy trend reads, rejection of non-chart
-screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The
+screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The overlay
+suite covers screen-share and floating-window capability detection, compact reads from a synthetic
+chart, drawn frame and level geometry, the price marker and direction badge, empty-frame clearing,
+and EN/ES key coverage (5 tests). The
 market-alert suite covers weekday, weekend,
 holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries, pre-close
 reminders, duplicate suppression, disabled groups, notification permission gating and EN/ES alert
@@ -220,7 +223,7 @@ canTrade gate, bracket-order construction and its crypto/short/fractional reject
 explicit-confirmation gate, the POST payload and upstream error mapping, and the session-scoped
 autopilot grant (13 tests), with fetch and session storage injected. The session suite covers the
 one-shot role lookup, owner/member mapping, unknown and missing roles, rejected lookups and the
-no-fetch fallback (5 tests). All thirteen suites total 188 tests.
+no-fetch fallback (5 tests). All sixteen suites total 193 tests.
 
 ## What is in the MVP
 
@@ -255,9 +258,20 @@ no-fetch fallback (5 tests). All thirteen suites total 188 tests.
   after 30 minutes), while **on its own** opens paper positions directly. It manages exits itself —
   stop, target, flipped plan, breakeven once the trade is up one risk unit and a half-R trail at
   1.5R. It keeps a virtual ledger, equity curve, win rate and R multiples in this browser, has a
-  recognizable voice and mood, and scans every 15 minutes while the page is open and the bot is
-  running. It runs on simulated data by default and its results are not a forecast of real
-  performance.
+  recognizable voice and mood, and scans about once a minute while the page is open and the bot is
+  running, so stops and targets are checked on a fresh quote. It runs on simulated data by default
+  and its results are not a forecast of real performance.
+- **Screen-share overlay** — `#/overlay` shares a trading window, tab or display with the browser's
+  own picker, reads the price shape on-device every few seconds and draws its read over the capture:
+  the detected plot frame, support and resistance lines, the last-price marker and a
+  direction/confidence badge. Nothing is uploaded, recorded or stored, and no camera is used;
+  stopping the share, closing the source or leaving the page ends capture immediately. **Float
+  overlay** opens a small always-on-top Document Picture-in-Picture window (Chrome or Edge 116+)
+  that mirrors the share and keeps the read visible while you work in another app. The floating
+  window sits above other apps — a browser page cannot draw inside them. The side card shows the
+  bot's conditional plan for the symbol you name, and the stance card mirrors any open paper
+  position. A shared chart carries no ticker, axis values or timeframe, so the read is a shape
+  estimate, not a quote, and the overlay never places an order.
 - **Optional Alpaca broker** — the bot page can connect an Alpaca account from this tab. Keys are
   kept in `sessionStorage` (`gt.broker.v1`), sent only to Alpaca, never stored on a server, and
   cleared when the tab closes or you disconnect. You choose live or paper mode; the card shows the
@@ -436,9 +450,10 @@ js/sides.js         one analysis input → mirrored buy and sell plan cases with
 js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate, autopilot grant
 js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
+js/overlay.js       screen-share capture, frame scanning and the drawn read (no upload)
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
-js/views/*.js       onboarding, dashboard, ideas, sides, analysis, settings, brokers reference, paper bot
+js/views/*.js       onboarding, dashboard, ideas, sides, analysis, settings, brokers reference, paper bot, overlay
 js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
