@@ -139,7 +139,7 @@ test('a request is stored and emailed to the owner with a signed review link', a
   assert.equal(res.headers.get('location'), BASE + '/request?sent=1');
   assert.equal(mails.length, 1);
   assert.deepEqual(mails[0].to, [OWNER_EMAIL]);
-  assert.match(mails[0].subject, /TIKO access request/);
+  assert.match(mails[0].subject, /TIKOTrade access request/);
   assert.match(mails[0].text, /ada@example\.com/);
   const token = reviewLink(mails[0]);
   assert.match(token, /^req\.[a-f0-9]{16}\.\d+\.[A-Za-z0-9_-]+$/);
@@ -191,7 +191,7 @@ test('approving emails one personal code that unlocks the app', async () => {
 
   assert.equal(mails.length, 2);
   assert.deepEqual(mails[1].to, ['ada@example.com']);
-  assert.match(mails[1].subject, /Your TIKO access code/);
+  assert.match(mails[1].subject, /Your TIKOTrade access code/);
   const code = mails[1].text.match(CODE)[1];
   assert.match(mails[1].text, /works for 30 days/);
 

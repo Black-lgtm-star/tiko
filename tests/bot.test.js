@@ -221,3 +221,176 @@ test('the same inputs and time produce the same ledger', () => {
   const two = run(TA.bot.start(TA.bot.create(), settings, 1000), [input('BTC'), input('ETH', { rr: 2.5 })], 2000);
   assert.deepEqual(one.state, two.state);
 });
+
+test('timing separates fired, armed and waiting entries', () => {
+  assert.equal(TA.bot.timing(plan()).window, 'now');
+  assert.equal(TA.bot.timing(plan({ state: 'triggered' })).window, 'now');
+  const armed = TA.bot.timing(plan({ state: 'wait', trigger: 100.5, price: 100, atr: 2 }));
+  assert.equal(armed.window, 'armed');
+  assert.equal(TA.bot.timing(plan({ state: 'wait', trigger: 106, price: 100, atr: 2 })).window, 'waiting');
+  assert.equal(TA.bot.timing(plan({ state: 'extended' })).window, 'none');
+
+  const near = TA.bot.decide({ lean: { confidence: 'high' } }, plan({ state: 'wait', trigger: 100.5, price: 100, atr: 2 }));
+  assert.equal(near.action, 'watch');
+  assert.equal(near.reason, 'triggerNear');
+});
+
+test('candidates are ranked by entry timing before reward', () => {
+  const state = TA.bot.start(TA.bot.create(), settings, 1000);
+  const out = run(state, [
+    input('AAPL', { state: 'wait', trigger: 106, price: 100, atr: 2 }),
+    input('MSFT', { rr: 5, state: 'triggered' }),
+    input('NVDA', { rr: 1.8 })
+  ], 2000);
+  assert.equal(out.state.positions.map((p) => p.symbol).join(','), 'NVDA,MSFT');
+});
+
+test('ask mode queues a proposal instead of opening', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const out = TA.bot.scan(started, [input('AAPL')], { settings, now: 2000, autoApprove: false });
+  assert.equal(out.state.positions.length, 0);
+  assert.equal(out.state.pending.length, 1);
+  assert.equal(out.state.pending[0].symbol, 'AAPL');
+  assert.equal(out.state.pending[0].status, 'pending');
+  assert.equal(out.state.pending[0].expiresAt, 2000 + TA.bot.pendingMs);
+  assert.equal(out.decisions[0].action, 'watch');
+  assert.equal(out.decisions[0].reason, 'pending');
+  assert.equal(out.events.filter((e) => e.type === 'propose').length, 1);
+  assert.equal(out.state.log[0].type, 'propose');
+});
+
+test('expired proposals are pruned and logged', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const queued = TA.bot.scan(started, [input('AAPL')], { settings, now: 2000, autoApprove: false });
+  const out = TA.bot.scan(queued.state, [], {
+    settings, now: 2000 + TA.bot.pendingMs + 1, autoApprove: false
+  });
+  assert.equal(out.state.pending.length, 0);
+  assert.equal(out.events.some((e) => e.type === 'expire' && e.symbol === 'AAPL'), true);
+});
+
+test('the proposal queue is capped', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const symbols = ['A', 'B', 'C', 'D', 'E', 'F'].map((s) => input(s, { rr: 3 }));
+  const out = TA.bot.scan(started, symbols, { settings, now: 2000, autoApprove: false });
+  assert.equal(out.state.pending.length, TA.bot.maxPending);
+  assert.equal(out.decisions.some((d) => d.reason === 'maxPending'), true);
+});
+
+test('approving a proposal opens the paper position once', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const queued = TA.bot.scan(started, [input('AAPL')], { settings, now: 2000, autoApprove: false });
+  const id = queued.state.pending[0].id;
+  const ok = TA.bot.approve(queued.state, id, 3000);
+  assert.equal(ok.error, undefined);
+  assert.equal(ok.state.pending.length, 0);
+  assert.equal(ok.state.positions.length, 1);
+  assert.equal(ok.position.symbol, 'AAPL');
+  assert.equal(ok.position.openedAt, 3000);
+  assert.equal(ok.state.log[0].type, 'open');
+
+  const again = TA.bot.approve(ok.state, id, 4000);
+  assert.equal(again.error, 'missing');
+  assert.equal(again.state.positions.length, 1);
+});
+
+test('approval refuses expired proposals and a full book', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const queued = TA.bot.scan(started, [input('AAPL')], { settings, now: 2000, autoApprove: false });
+  const id = queued.state.pending[0].id;
+  const late = TA.bot.approve(queued.state, id, 2000 + TA.bot.pendingMs + 1);
+  assert.equal(late.error, 'expired');
+  assert.equal(late.state.pending.length, 0);
+  assert.equal(late.state.log[0].type, 'expire');
+
+  const full = TA.bot.start(TA.bot.create(), settings, 1000);
+  full.maxPositions = 2;
+  const scanned = TA.bot.scan(full, [input('AAPL'), input('MSFT'), input('NVDA')], {
+    settings, now: 2000, autoApprove: false
+  });
+  scanned.state.positions = ['BTC', 'ETH'].map((symbol) => TA.bot.buildPosition(input(symbol), settings, 2000));
+  const rejected = TA.bot.approve(scanned.state, scanned.state.pending[0].id, 3000);
+  assert.equal(rejected.error, 'maxPositions');
+});
+
+test('declining a proposal removes it without opening a position', () => {
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const queued = TA.bot.scan(started, [input('AAPL')], { settings, now: 2000, autoApprove: false });
+  const out = TA.bot.decline(queued.state, queued.state.pending[0].id, 3000);
+  assert.equal(out.error, undefined);
+  assert.equal(out.state.pending.length, 0);
+  assert.equal(out.state.positions.length, 0);
+  assert.equal(out.state.log[0].type, 'decline');
+});
+
+test('winners move the stop to breakeven and then trail', () => {
+  let state = TA.bot.start(TA.bot.create(), settings, 1000);
+  state = run(state, [input('BTC')], 2000).state;
+  assert.equal(state.positions[0].stop, 98);
+
+  let out = run(state, [input('BTC', {}, { price: 102 })], 3000);
+  assert.equal(out.state.positions[0].stop, 100);
+  assert.equal(out.state.positions[0].trail, true);
+  assert.equal(out.state.positions[0].trail2, false);
+  assert.equal(out.state.log[0].type, 'manage');
+  assert.equal(out.state.log[0].kind, 'breakeven');
+
+  out = run(out.state, [input('BTC', {}, { price: 103 })], 4000);
+  assert.equal(out.state.positions[0].stop, 101);
+  assert.equal(out.state.positions[0].trail2, true);
+
+  const stopped = run(out.state, [input('BTC', {}, { price: 100.5 })], 5000);
+  assert.equal(stopped.state.closed[0].reason, 'trail');
+  assert.equal(stopped.state.closed[0].exit, 100.5);
+  assert.ok(stopped.state.closed[0].pnl > 0);
+});
+
+test('persona voice is deterministic and events carry quips', () => {
+  const first = TA.bot.voice('open', 7);
+  assert.equal(first, TA.bot.voice('open', 7));
+  assert.match(first, /^bot\.voice\.open\./);
+  assert.equal(TA.bot.voice('unknown', 1), null);
+  assert.equal(TA.bot.persona.name, 'Tiko');
+
+  const started = TA.bot.start(TA.bot.create(), settings, 1000);
+  const out = run(started, [input('BTC')], 2000);
+  assert.match(out.state.log[0].quip, /^bot\.voice\.open\./);
+  const closed = run(out.state, [input('BTC', {}, { price: 104.6 })], 3000);
+  assert.match(closed.state.log[0].quip, /^bot\.voice\.target\./);
+});
+
+test('every bot.* key used in code exists in EN and ES', () => {
+  const code = fs.readFileSync(path.join(root, 'js/bot.js'), 'utf8')
+    + fs.readFileSync(path.join(root, 'js/views/bot.js'), 'utf8');
+  const used = new Set();
+  (code.match(/'bot\.[^']+'/g) || []).forEach((s) => {
+    const k = s.slice(1, -1);
+    if (!k.endsWith('.')) used.add(k);
+  });
+  TA.bot.approvals.forEach((mode) => {
+    used.add('bot.auto.mode.' + mode);
+    used.add('bot.auto.note.' + mode);
+  });
+  ['1', '2', '3', '4'].forEach((n) => used.add('bot.auto.modal.' + n));
+  ['1', '2', '3', '4', '5', '6'].forEach((n) => used.add('bot.rules.' + n));
+  ['paused', 'watching', 'up', 'down', 'ready'].forEach((m) => used.add('bot.persona.mood.' + m));
+  ['now', 'armed'].forEach((t) => used.add('bot.scan.timing.' + t));
+  ['open', 'watch', 'skip'].forEach((a) => used.add('bot.scan.action.' + a));
+  ['ready', 'wait', 'triggerNear', 'extended', 'invalidated', 'noEdge', 'lowConfidence', 'lowReward',
+    'badLevels', 'noSide', 'alreadyOpen', 'maxPositions', 'maxPending', 'pending', 'flipped', 'noSize']
+    .forEach((r) => used.add('bot.scan.reason.' + r));
+  ['stop', 'target', 'trail', 'flip'].forEach((r) => used.add('bot.closed.reason.' + r));
+  ['breakeven', 'trail'].forEach((k) => used.add('bot.log.manage.' + k));
+  ['long', 'short', 'none'].forEach((s) => used.add('bot.side.' + s));
+
+  const i18n = fs.readFileSync(path.join(root, 'js/i18n.js'), 'utf8');
+  const enPart = i18n.slice(i18n.indexOf('var en = {'), i18n.indexOf('var es = {'));
+  const esPart = i18n.slice(i18n.indexOf('var es = {'), i18n.indexOf('function t('));
+  const enKeys = new Set((enPart.match(/'(bot\.[^']+)':/g) || []).map((s) => s.slice(1, -2)));
+  const esKeys = new Set((esPart.match(/'(bot\.[^']+)':/g) || []).map((s) => s.slice(1, -2)));
+  const missingEn = [...used].filter((k) => !enKeys.has(k));
+  const missingEs = [...used].filter((k) => !esKeys.has(k));
+  assert.deepEqual(missingEn, [], 'missing EN: ' + missingEn.join(', '));
+  assert.deepEqual(missingEs, [], 'missing ES: ' + missingEs.join(', '));
+  assert.equal(enKeys.size, esKeys.size, 'EN/ES bot key counts differ');
+});

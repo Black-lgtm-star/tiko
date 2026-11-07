@@ -69,6 +69,7 @@
         '<div class="hero-actions">' +
           '<button class="btn btn-primary hero-cta" type="button" data-ideas-refresh' + (state.loading ? ' disabled' : '') + '>' +
             ui.icon('refresh', 15) + ' ' + U.esc(T(state.loading ? 'ideas.refreshing' : 'ideas.refresh')) + '</button>' +
+          '<a class="btn btn-cyan" href="#/sides">' + U.esc(T('nav.sides')) + '</a>' +
           '<a class="btn btn-cyan" href="#/markets">' + U.esc(T('nav.markets')) + '</a>' +
         '</div>' +
       '</div>' +

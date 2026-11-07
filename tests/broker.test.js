@@ -241,6 +241,39 @@ test('submit posts the bracket order to Alpaca once confirmed', async () => {
   assert.equal(res.id, 'order-1');
 });
 
+test('live autopilot is session-only, needs live keys and is cleared with the connection', () => {
+  broker.clear();
+  assert.equal(broker.readAutopilot(), null);
+  broker.save({ mode: 'paper', keyId: 'PKTEST', secretKey: 'secret' });
+  assert.equal(broker.grantAutopilot(1000), null);
+  assert.equal(broker.readAutopilot(), null);
+
+  broker.save({ mode: 'live', keyId: 'PKTEST', secretKey: 'secret' });
+  const grant = broker.grantAutopilot(1000);
+  assert.equal(grant.mode, 'live');
+  assert.equal(grant.at, 1000);
+  assert.equal(broker.readAutopilot().at, 1000);
+  assert.equal(session.getItem('gt.broker.autopilot.session.v1') != null, true);
+
+  broker.save({ mode: 'paper', keyId: 'PKTEST', secretKey: 'secret' });
+  assert.equal(broker.readAutopilot(), null);
+  assert.equal(session.getItem('gt.broker.autopilot.session.v1'), null);
+
+  broker.save({ mode: 'live', keyId: 'PKTEST', secretKey: 'secret' });
+  broker.grantAutopilot(2000);
+  assert.equal(broker.readAutopilot().at, 2000);
+  broker.clear();
+  assert.equal(broker.readAutopilot(), null);
+  assert.equal(session.getItem('gt.broker.autopilot.session.v1'), null);
+
+  broker.save({ mode: 'live', keyId: 'PKTEST', secretKey: 'secret' });
+  session.setItem('gt.broker.autopilot.session.v1', '{broken');
+  assert.equal(broker.readAutopilot(), null);
+  session.setItem('gt.broker.autopilot.session.v1', JSON.stringify({ mode: 'paper', at: 5 }));
+  assert.equal(broker.readAutopilot(), null);
+  broker.clear();
+});
+
 test('Alpaca failures map to stable error codes', async () => {
   await assert.rejects(broker.account(keys, { fetch: fakeFetch(401, { message: 'unauthorized' }) }), (err) => {
     assert.equal(err.code, 'auth');

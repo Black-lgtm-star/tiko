@@ -1,10 +1,12 @@
 /* broker.js — optional Alpaca live trading from this tab.
-   Keys live in sessionStorage only. Nothing is sent without an explicit confirmed order. */
+   Keys live in sessionStorage only. Orders are sent only after an explicit
+   confirmation, or under a live autopilot grant that is itself session-only. */
 (function (TA) {
   'use strict';
   var U = TA.util;
 
   var KEY = 'gt.broker.v1';
+  var AUTOPILOT_KEY = 'gt.broker.autopilot.session.v1';
   var BASE = {
     live: 'https://api.alpaca.markets',
     paper: 'https://paper-api.alpaca.markets'
@@ -45,12 +47,41 @@
     var s = storage();
     if (!keys || !s) return null;
     s.setItem(KEY, JSON.stringify(keys));
+    if (keys.mode !== 'live') clearAutopilot();
     return keys;
   }
 
   function clear() {
     var s = storage();
     if (s) s.removeItem(KEY);
+    clearAutopilot();
+  }
+
+  // Autopilot is an explicit, session-only grant for live order submission.
+  // It dies with the tab and is dropped on disconnect or a mode change.
+  function readAutopilot() {
+    var s = storage();
+    var keys = read();
+    if (!s || !keys || keys.mode !== 'live') return null;
+    try {
+      var record = JSON.parse(s.getItem(AUTOPILOT_KEY) || 'null');
+      if (record && record.mode === 'live' && U.isNum(record.at)) return record;
+    } catch (e) { /* ignore a corrupt grant */ }
+    return null;
+  }
+
+  function grantAutopilot(now) {
+    var s = storage();
+    var keys = read();
+    if (!s || !keys || keys.mode !== 'live') return null;
+    var record = { mode: 'live', at: U.isNum(now) ? now : Date.now() };
+    s.setItem(AUTOPILOT_KEY, JSON.stringify(record));
+    return record;
+  }
+
+  function clearAutopilot() {
+    var s = storage();
+    if (s) s.removeItem(AUTOPILOT_KEY);
   }
 
   function base(mode) { return BASE[mode] || BASE.live; }
@@ -264,12 +295,16 @@
 
   TA.broker = {
     storageKey: KEY,
+    autopilotKey: AUTOPILOT_KEY,
     modes: MODES,
     base: BASE,
     normalizeKeys: normalizeKeys,
     read: read,
     save: save,
     clear: clear,
+    readAutopilot: readAutopilot,
+    grantAutopilot: grantAutopilot,
+    clearAutopilot: clearAutopilot,
     account: account,
     positions: positions,
     openOrders: openOrders,

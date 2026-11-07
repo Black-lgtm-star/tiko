@@ -323,7 +323,7 @@
     exportFeedback: function () {
       return JSON.stringify({
         exportedAt: new Date().toISOString(),
-        app: 'TIKO MVP',
+        app: 'TIKOTrade MVP',
         note: 'Locally collected feedback. No analytics backend is connected.',
         items: feedback.slice().reverse()
       }, null, 2);

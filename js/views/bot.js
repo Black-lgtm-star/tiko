@@ -7,11 +7,12 @@
   var lang = function () { return TA.i18n.get(); };
 
   var FALLBACK = ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'];
-  var MAX_UNIVERSE = 12;
+  var MAX_UNIVERSE = 16;
   var AUTO_SCAN_MS = 15 * 60 * 1000;
   var LIVE_SCAN_MAX_MS = 60 * 60 * 1000;
   var BOUND = '__botBound';
   var scanning = false;
+  var scanTimer = null;
   var broker = { loading: false, error: null, account: null, positions: [], orders: [], at: null };
 
   function brokerKeys() {
@@ -104,18 +105,18 @@
       '<b class="' + (toneClass || '') + '">' + U.esc(value) + '</b></div>';
   }
 
-  function openTicket(root, row) {
-    if (!row || row.action !== 'open' || row.assetClass !== 'stock' || row.side !== 'long') return;
+  function openTicket(root, row, done) {
+    if (!row || row.action !== 'open' || row.assetClass !== 'stock' || row.side !== 'long') return false;
     var keys = brokerKeys();
-    if (!keys) { ui.toast(T('bot.broker.err.noKeys')); return; }
-    if (row.dataMode !== 'live') { ui.toast(T('bot.broker.err.sample')); return; }
+    if (!keys) { ui.toast(T('bot.broker.err.noKeys')); return false; }
+    if (row.dataMode !== 'live') { ui.toast(T('bot.broker.err.sample')); return false; }
     var scan = readState().lastScan;
     if (!scan || !U.isNum(scan.at) || Date.now() - scan.at > LIVE_SCAN_MAX_MS) {
-      ui.toast(T('bot.broker.err.stale')); return;
+      ui.toast(T('bot.broker.err.stale')); return false;
     }
-    if (!broker.account) { ui.toast(T('bot.broker.err.notReady')); return; }
+    if (!broker.account) { ui.toast(T('bot.broker.err.notReady')); return false; }
     var trade = TA.broker.canTrade(broker.account);
-    if (!trade.ok) { ui.toast(T('bot.broker.err.blocked')); return; }
+    if (!trade.ok) { ui.toast(T('bot.broker.err.blocked')); return false; }
     var settings = TA.store.settings();
     var entry = row.entry || row.price;
     var sized = TA.tradeplan.size({ entry: entry, stop: row.stop, target: row.target, sizeAllowed: true }, settings);
@@ -132,7 +133,7 @@
       target: row.target,
       units: units
     });
-    if (ticket.error) { ui.toast(T('bot.broker.err.' + ticket.error)); return; }
+    if (ticket.error) { ui.toast(T('bot.broker.err.' + ticket.error)); return false; }
     var live = keys.mode === 'live';
     var body = '<p class="broker-ticket-lede">' + U.esc(T(live ? 'bot.broker.confirm.ledeLive' : 'bot.broker.confirm.ledePaper')) + '</p>' +
       '<div class="broker-ticket-grid">' +
@@ -159,7 +160,7 @@
     var ack = document.querySelector('#modal-root [data-broker-ack]');
     var send = document.querySelector('#modal-root [data-broker-send]');
     var errEl = document.querySelector('#modal-root [data-broker-send-err]');
-    if (!ack || !send) return;
+    if (!ack || !send) return true;
     ack.addEventListener('change', function () { send.disabled = !ack.checked; });
     send.addEventListener('click', function () {
       if (!ack.checked || send.disabled) return;
@@ -167,6 +168,7 @@
       errEl.textContent = '';
       TA.broker.submit(brokerKeys(), ticket.order, { confirm: true }).then(function (res) {
         close();
+        if (done) done(res);
         ui.toast(T('bot.broker.toast.sent', { status: (res && res.status) || 'accepted' }));
         refreshBroker(root, { quiet: true });
       }).catch(function (err) {
@@ -174,6 +176,7 @@
         errEl.textContent = brokerErrorText(err);
       });
     });
+    return true;
   }
 
   function readState() {
@@ -233,16 +236,25 @@
       seen[asset.symbol] = true;
       assets.push(asset);
     }
-    TA.store.watchlist().forEach(function (entry) {
-      if (entry && entry.symbol) add(knownAsset(entry));
-    });
-    if (!assets.length) {
-      FALLBACK.forEach(function (symbol) { add(TA.catalog.find(symbol)); });
-    }
+    // Open positions first: the bot must always be able to mark and close them.
     state.positions.forEach(function (pos) {
       if (pos && pos.symbol) add(knownAsset(pos));
     });
+    TA.store.watchlist().forEach(function (entry) {
+      if (entry && entry.symbol) add(knownAsset(entry));
+    });
+    if (state.autoStocks !== false && TA.recommend) {
+      TA.recommend.universe().forEach(add);
+    }
+    if (!assets.length) {
+      FALLBACK.forEach(function (symbol) { add(TA.catalog.find(symbol)); });
+    }
     return assets;
+  }
+
+  function autoStockCount(state) {
+    if (state.autoStocks === false || !TA.recommend) return 0;
+    return TA.recommend.universe().length;
   }
 
   function loadAsset(asset) {
@@ -293,12 +305,18 @@
         paint(root);
         return;
       }
-      var out = TA.bot.scan(readState(), inputs, { settings: TA.store.settings(), now: Date.now() });
+      var out = TA.bot.scan(readState(), inputs, {
+        settings: TA.store.settings(),
+        now: Date.now(),
+        autoApprove: current.approval !== 'ask'
+      });
       writeState(out.state);
       var opened = out.events.filter(function (e) { return e.type === 'open'; }).length;
       var closed = out.events.filter(function (e) { return e.type === 'close'; }).length;
-      ui.toast(T('bot.toast.scan', { opened: opened, closed: closed }));
+      var proposed = out.events.filter(function (e) { return e.type === 'propose'; }).length;
+      ui.toast(T('bot.toast.scan', { opened: opened, closed: closed, proposed: proposed }));
       paint(root);
+      maybeAutoLive(root, out);
     }).catch(function () {
       scanning = false;
       if (!stillHere(root)) return;
@@ -307,12 +325,69 @@
     });
   }
 
+  function liveAutoReady() {
+    var keys = brokerKeys();
+    if (!keys || keys.mode !== 'live') return false;
+    if (!TA.broker.readAutopilot()) return false;
+    if (!broker.account) return false;
+    return TA.broker.canTrade(broker.account).ok;
+  }
+
+  // Session-scoped live autopilot: at most one confirmed-at-grant order per
+  // scan, long U.S. stocks only, live data only, sized by the saved settings.
+  function maybeAutoLive(root, out) {
+    if (!liveAutoReady()) return;
+    var row = (out.decisions || []).filter(function (d) {
+      return d.action === 'open' && d.assetClass === 'stock' && d.side === 'long' && d.dataMode === 'live';
+    })[0];
+    if (!row) return;
+    var keys = brokerKeys();
+    var entry = row.entry || row.price;
+    var sized = TA.tradeplan.size({ entry: entry, stop: row.stop, target: row.target, sizeAllowed: true }, TA.store.settings());
+    var units = sized ? sized.units : 0;
+    if (U.isNum(broker.account.buyingPower) && U.isNum(entry) && entry > 0) {
+      units = Math.min(units, Math.floor(broker.account.buyingPower / entry));
+    }
+    var ticket = TA.broker.buildOrder({
+      symbol: row.symbol, assetClass: row.assetClass, side: row.side,
+      entry: entry, stop: row.stop, target: row.target, units: units
+    });
+    if (ticket.error) {
+      logLive(row.symbol, 'error', T('bot.broker.err.' + ticket.error));
+      if (stillHere(root)) { ui.toast(T('bot.broker.err.' + ticket.error)); paint(root); }
+      return;
+    }
+    TA.broker.submit(keys, ticket.order, { confirm: true }).then(function (res) {
+      logLive(row.symbol, 'sent', (res && res.status) || 'accepted');
+      if (!stillHere(root)) return;
+      ui.toast(T('bot.broker.auto.sent', { symbol: row.symbol }));
+      paint(root);
+      refreshBroker(root, { quiet: true });
+    }).catch(function (err) {
+      logLive(row.symbol, 'error', brokerErrorText(err));
+      if (!stillHere(root)) return;
+      ui.toast(T('bot.broker.auto.failed', { symbol: row.symbol }));
+      paint(root);
+    });
+  }
+
+  function logLive(symbol, status, detail) {
+    var state = readState();
+    state.log.unshift({
+      ts: Date.now(), type: 'live', symbol: symbol, side: 'long',
+      status: detail, outcome: status
+    });
+    writeState(state);
+  }
+
   function toggleBot(root) {
     var state = readState();
     if (state.enabled) {
       state = TA.bot.stop(state);
       state.log.unshift({ ts: Date.now(), type: 'stop' });
       writeState(state);
+      // Kill switch: pausing also revokes any live autopilot grant.
+      if (TA.broker && TA.broker.readAutopilot()) TA.broker.clearAutopilot();
       ui.toast(T('bot.toast.paused'));
       paint(root);
       return;
@@ -353,6 +428,7 @@
 
   function headerHtml(state) {
     var keys = brokerKeys();
+    var auto = TA.broker && TA.broker.readAutopilot();
     var badge = state.enabled
       ? '<span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('bot.badge.on')) + '</span>'
       : '<span class="badge badge-neutral">' + U.esc(T('bot.badge.off')) + '</span>';
@@ -361,21 +437,25 @@
           (keys.mode === 'live' ? ui.icon('pulse', 11) : ui.icon('shield', 11)) +
           U.esc(T(keys.mode === 'live' ? 'bot.broker.badge.live' : 'bot.broker.badge.paper')) + '</span>'
       : '';
+    var autoBadge = auto
+      ? '<span class="bot-broker-badge live"><i class="dot pulse"></i>' + U.esc(T('bot.auto.badge')) + '</span>'
+      : '';
     var watchCount = TA.store.watchlist().length;
     var scopeCount = universe(state).length;
     var scope = T(scopeCount === 1 ? 'bot.rule.watchlistOne' : 'bot.rule.watchlist', { n: scopeCount });
     if (!watchCount) {
-      scope += ' · ' + T('bot.status.noWatch', {
+      scope += ' · ' + T(state.autoStocks !== false ? 'bot.status.noWatchAuto' : 'bot.status.noWatch', {
         list: universe(state).map(function (a) { return a.symbol; }).join(', ')
       });
     }
+    scope += ' · ' + T(state.approval === 'ask' ? 'bot.rule.askFirst' : 'bot.rule.autoOpen');
     return '<header class="bot-head">' +
       '<div class="bot-head-copy">' +
         '<span class="eyebrow"><i class="dot"></i>' + U.esc(T('bot.eyebrow')) + '</span>' +
         '<div class="bot-title-row"><h1>' + U.esc(T('bot.title')) + '</h1>' +
-          '<span class="bot-sim">' + ui.icon('shield', 12) + U.esc(T(keys ? 'bot.broker.discTitle' : 'bot.badge.sim')) + '</span></div>' +
+          '<span class="bot-sim">' + ui.icon('sparkles', 12) + U.esc(T('bot.persona.name')) + '</span></div>' +
         '<p class="bot-lede">' + U.esc(T('bot.lede')) + '</p>' +
-        '<div class="bot-meta">' + badge + liveBadge + '<span class="bot-meta-text">' + U.esc(statusText(state)) + '</span></div>' +
+        '<div class="bot-meta">' + badge + liveBadge + autoBadge + '<span class="bot-meta-text">' + U.esc(statusText(state)) + '</span></div>' +
         '<p class="tiny muted bot-scope">' + U.esc(scope) + '</p>' +
       '</div>' +
       '<div class="bot-actions">' +
@@ -390,7 +470,7 @@
     '</header>' +
     '<div class="disclaimer bot-disclaimer">' + ui.icon('warning', 15) +
       '<div><b>' + U.esc(T(keys ? 'bot.broker.discTitle' : 'bot.badge.sim')) + '.</b> ' +
-      U.esc(T(keys ? 'bot.disclaimer.live' : 'bot.disclaimer')) + '</div></div>';
+      U.esc(T(keys ? (auto ? 'bot.disclaimer.autopilot' : 'bot.disclaimer.live') : 'bot.disclaimer')) + '</div></div>';
   }
 
   function tile(label, value, note, toneClass) {
@@ -526,6 +606,208 @@
       '<div class="card-body">' + body + '</div></section>';
   }
 
+  function canSendProposal(p) {
+    if (!p || !brokerKeys() || !broker.account) return false;
+    if (p.assetClass !== 'stock' || p.side !== 'long' || p.dataMode !== 'live') return false;
+    var scan = readState().lastScan;
+    if (!scan || !U.isNum(scan.at) || Date.now() - scan.at > LIVE_SCAN_MAX_MS) return false;
+    return TA.broker.canTrade(broker.account).ok;
+  }
+
+  function proposalRow(p) {
+    var mins = U.isNum(p.expiresAt) ? Math.max(0, Math.round((p.expiresAt - Date.now()) / 60000)) : null;
+    var id = U.attr(p.id);
+    return '<li class="bot-pending-row">' +
+      '<div class="bot-pending-main"><b>' + U.esc(p.symbol) + '</b>' +
+        '<span class="bot-side ' + (p.side === 'long' ? 'up' : 'down') + '">' + U.esc(sideText(p.side)) + '</span>' +
+        '<p class="tiny muted">' + U.esc(T('bot.pending.levels', {
+          entry: U.fmtPrice(p.entry, '', lang()),
+          stop: U.fmtPrice(p.stop, '', lang()),
+          target: U.fmtPrice(p.target, '', lang())
+        })) + '</p>' +
+        '<p class="tiny muted">' + U.esc(T('bot.pending.size', {
+          units: p.units, risk: money(p.riskAmount), rr: U.isNum(p.rr) ? p.rr.toFixed(1) : '—'
+        })) + '</p>' +
+        (mins == null ? '' : '<p class="tiny muted">' + U.esc(T('bot.pending.expires', { n: mins })) + '</p>') +
+      '</div>' +
+      '<div class="bot-pending-actions">' +
+        '<button class="btn btn-xs btn-primary" type="button" data-pending-approve="' + id + '">' +
+          U.esc(T('bot.pending.approve')) + '</button>' +
+        (canSendProposal(p)
+          ? '<button class="btn btn-xs btn-danger" type="button" data-pending-live="' + id + '">' +
+              ui.icon('warning', 11) + U.esc(T('bot.pending.live')) + '</button>'
+          : '') +
+        '<button class="btn btn-xs btn-ghost" type="button" data-pending-decline="' + id + '">' +
+          U.esc(T('bot.pending.decline')) + '</button>' +
+      '</div>' +
+    '</li>';
+  }
+
+  function pendingCard(state) {
+    var rows = state.pending.map(proposalRow).join('');
+    var body = rows
+      ? '<ul class="bot-pending-list">' + rows + '</ul>'
+      : '<div class="empty">' + U.esc(T(state.approval === 'ask' ? 'bot.pending.emptyAsk' : 'bot.pending.emptyAuto')) + '</div>';
+    return '<section class="card span-7 edge-amber bot-card" aria-labelledby="bot-pending-title">' +
+      '<div class="card-head"><div><h2 id="bot-pending-title">' + ui.icon('flag', 14) + U.esc(T('bot.pending.title')) + '</h2>' +
+      '<p class="tiny muted">' + U.esc(T('bot.pending.subtitle')) + '</p></div>' +
+      '<span class="badge badge-neutral">' + state.pending.length + ' / ' + TA.bot.maxPending + '</span></div>' +
+      '<div class="card-body">' + body + '</div></section>';
+  }
+
+  function moodText(state, summary) {
+    if (!state.enabled) return T('bot.persona.mood.paused');
+    if (summary.openCount > 0) return T('bot.persona.mood.watching');
+    if (summary.closedCount > 0 && summary.totalR > 0) return T('bot.persona.mood.up');
+    if (summary.closedCount > 0 && summary.totalR < 0) return T('bot.persona.mood.down');
+    return T('bot.persona.mood.ready');
+  }
+
+  function personaCard(state, summary) {
+    var keys = brokerKeys();
+    var auto = TA.broker && TA.broker.readAutopilot();
+    var live = keys && keys.mode === 'live';
+    var mood = moodText(state, summary);
+    var moodTone = !state.enabled ? 'flat' : summary.totalR > 0 ? 'up' : summary.totalR < 0 ? 'down' : 'flat';
+    var quip = T(TA.bot.voice('mood', state.scans + Math.floor(Date.now() / 86400000)));
+    var options = [
+      { id: 'ask', key: 'bot.auto.mode.ask' },
+      { id: 'paper', key: 'bot.auto.mode.paper' },
+      { id: 'auto', key: 'bot.auto.mode.auto' }
+    ].map(function (o) {
+      return '<option value="' + o.id + '"' + (state.approval === o.id ? ' selected' : '') + '>' +
+        U.esc(T(o.key)) + '</option>';
+    }).join('');
+    var autoLive = live
+      ? (auto
+          ? '<div class="bot-auto-live on">' +
+              '<div><b>' + ui.icon('pulse', 12) + ' ' + U.esc(T('bot.auto.liveOn')) + '</b>' +
+              '<p class="tiny muted">' + U.esc(T('bot.auto.liveOnNote', {
+                time: U.fmtDateTime(auto.at, lang())
+              })) + '</p></div>' +
+              '<button class="btn btn-sm btn-ghost" type="button" data-bot-revoke>' + U.esc(T('bot.auto.revoke')) + '</button>' +
+            '</div>'
+          : '<div class="bot-auto-live">' +
+              '<div><b>' + U.esc(T('bot.auto.liveOff')) + '</b>' +
+              '<p class="tiny muted">' + U.esc(T('bot.auto.liveOffNote')) + '</p></div>' +
+              '<button class="btn btn-sm btn-danger" type="button" data-bot-authorize>' +
+                ui.icon('warning', 11) + U.esc(T('bot.auto.authorize')) + '</button>' +
+            '</div>')
+      : '<p class="tiny muted bot-auto-note">' + U.esc(T('bot.auto.needLive')) + '</p>';
+    var modeNote = T('bot.auto.note.' + state.approval);
+    return '<section class="card span-5 edge-magenta bot-card bot-persona-card" aria-labelledby="bot-persona-title">' +
+      '<div class="card-head bot-persona-head">' +
+        '<div class="bot-persona-id">' +
+          '<span class="bot-persona-avatar" aria-hidden="true">' + ui.icon('sparkles', 18) + '</span>' +
+          '<div><h2 id="bot-persona-title">' + U.esc(T('bot.persona.name')) + '</h2>' +
+          '<p class="tiny muted">' + U.esc(T('bot.persona.subtitle')) + '</p></div>' +
+        '</div>' +
+        '<span class="bot-mood ' + moodTone + '">' + U.esc(mood) + '</span>' +
+      '</div>' +
+      '<div class="card-body bot-persona-body">' +
+        '<p class="bot-persona-quip">“' + U.esc(quip) + '”</p>' +
+        '<label class="bot-field"><span>' + U.esc(T('bot.auto.mode')) + '</span>' +
+          '<select class="input" data-bot-approval>' + options + '</select>' +
+          '<small class="tiny muted">' + U.esc(modeNote) + '</small></label>' +
+        '<label class="bot-check"><input type="checkbox" data-bot-stocks' + (state.autoStocks !== false ? ' checked' : '') + '> ' +
+          '<span><b>' + U.esc(T('bot.auto.stocks')) + '</b>' +
+          '<small class="tiny muted">' + U.esc(T('bot.auto.stocksNote')) + '</small></span></label>' +
+        autoLive +
+      '</div></section>';
+  }
+
+  function setApproval(root, value) {
+    var state = readState();
+    state.approval = TA.bot.approvals.indexOf(value) >= 0 ? value : 'ask';
+    writeState(state);
+    // Choosing a mode that promises to ask revokes any live autopilot grant.
+    if (state.approval !== 'auto' && TA.broker && TA.broker.readAutopilot()) TA.broker.clearAutopilot();
+    ui.toast(T('bot.auto.toast.' + state.approval));
+    paint(root);
+  }
+
+  function confirmLiveAutopilot(root) {
+    var keys = brokerKeys();
+    if (!keys || keys.mode !== 'live') { ui.toast(T('bot.auto.err.liveOnly')); return; }
+    var body = '<p class="broker-ticket-lede">' + U.esc(T('bot.auto.modal.lede')) + '</p>' +
+      '<ul class="bot-auto-list">' +
+        ['1', '2', '3', '4'].map(function (n) {
+          return '<li>' + U.esc(T('bot.auto.modal.' + n)) + '</li>';
+        }).join('') +
+      '</ul>' +
+      '<div class="disclaimer broker-ticket-warn">' + ui.icon('warning', 15) + '<div>' +
+        U.esc(T('bot.auto.modal.warn')) + '</div></div>' +
+      '<label class="broker-ack"><input type="checkbox" data-auto-ack> ' +
+        U.esc(T('bot.auto.modal.ack')) + '</label>' +
+      '<button class="btn btn-danger broker-send" type="button" data-auto-enable disabled>' +
+        U.esc(T('bot.auto.modal.enable')) + '</button>';
+    var close = ui.openModal({
+      title: T('bot.auto.modal.title'),
+      body: body,
+      actions: [{ label: T('bot.auto.modal.cancel') }]
+    });
+    var ack = document.querySelector('#modal-root [data-auto-ack]');
+    var enable = document.querySelector('#modal-root [data-auto-enable]');
+    if (!ack || !enable) return;
+    ack.addEventListener('change', function () { enable.disabled = !ack.checked; });
+    enable.addEventListener('click', function () {
+      if (!ack.checked || enable.disabled) return;
+      if (!TA.broker.grantAutopilot(Date.now())) { ui.toast(T('bot.auto.err.liveOnly')); return; }
+      var state = readState();
+      state.approval = 'auto';
+      writeState(state);
+      close();
+      ui.toast(T('bot.auto.toast.granted'));
+      paint(root);
+    });
+  }
+
+  function revokeAutopilot(root) {
+    if (TA.broker) TA.broker.clearAutopilot();
+    var state = readState();
+    if (state.approval === 'auto') {
+      state.approval = 'paper';
+      writeState(state);
+    }
+    ui.toast(T('bot.auto.toast.revoked'));
+    paint(root);
+  }
+
+  function approveProposal(root, id) {
+    var out = TA.bot.approve(readState(), id, Date.now());
+    writeState(out.state);
+    if (out.error) ui.toast(T('bot.pending.err.' + out.error));
+    else ui.toast(T('bot.pending.toast.approved', { symbol: out.position.symbol }));
+    paint(root);
+  }
+
+  function declineProposal(root, id) {
+    var out = TA.bot.decline(readState(), id, Date.now());
+    writeState(out.state);
+    ui.toast(T(out.error ? 'bot.pending.err.missing' : 'bot.pending.toast.declined'));
+    paint(root);
+  }
+
+  function sendProposalLive(root, id) {
+    var state = readState();
+    var p = state.pending.filter(function (x) { return x.id === id; })[0];
+    if (!p) { ui.toast(T('bot.pending.err.missing')); return; }
+    var opened = openTicket(root, {
+      action: 'open', symbol: p.symbol, assetClass: p.assetClass, side: p.side,
+      dataMode: p.dataMode, entry: p.entry, stop: p.stop, target: p.target, rr: p.rr
+    }, function (res) {
+      var next = readState();
+      next.pending = next.pending.filter(function (x) { return x.id !== id; });
+      next.log.unshift({
+        ts: Date.now(), type: 'live', symbol: p.symbol, side: p.side,
+        status: (res && res.status) || 'accepted', outcome: 'sent'
+      });
+      writeState(next);
+      paint(root);
+    });
+    if (!opened) ui.toast(T('bot.pending.err.live'));
+  }
+
   function positionsCard(state) {
     var rows = state.positions.map(function (pos) {
       var pnl = (pos.last - pos.entry) * pos.units * (pos.side === 'long' ? 1 : -1);
@@ -583,10 +865,14 @@
       var reason = T('bot.scan.reason.' + d.reason);
       var price = U.isNum(d.entry) ? d.entry : d.price;
       var live = liveAction(d, i, state);
+      var when = d.timing === 'now' || d.timing === 'armed'
+        ? '<span class="bot-timing ' + d.timing + '">' + U.esc(T('bot.scan.timing.' + d.timing)) + '</span>'
+        : '';
       return '<li class="bot-scan-row">' +
         '<span class="bot-pill bot-pill-' + actKey + '">' + U.esc(T('bot.scan.action.' + actKey)) + '</span>' +
         '<div class="bot-scan-main"><b>' + U.esc(d.symbol) + '</b>' +
           '<span class="bot-side ' + (d.side === 'short' ? 'down' : d.side === 'long' ? 'up' : 'flat') + '">' + U.esc(sideText(d.side)) + '</span>' +
+          when +
           '<p class="tiny muted">' + U.esc(reason) + '</p></div>' +
         '<div class="bot-scan-num">' +
           '<b>' + U.esc(U.isNum(price) ? U.fmtPrice(price, '', lang()) : '—') + '</b>' +
@@ -648,25 +934,29 @@
 
   function logCard(state) {
     var rows = state.log.slice(0, 14).map(function (e) {
-      if (e.type === 'start') {
-        return '<li><span class="bot-log-time tiny muted">' + U.esc(U.fmtDateTime(e.ts, lang())) + '</span>' +
-          '<span>' + U.esc(T('bot.log.start', { size: money(e.price) })) + '</span></li>';
-      }
-      if (e.type === 'stop') {
-        return '<li><span class="bot-log-time tiny muted">' + U.esc(U.fmtDateTime(e.ts, lang())) + '</span>' +
-          '<span>' + U.esc(T('bot.log.stop')) + '</span></li>';
-      }
       var side = sideText(e.side);
       var price = U.fmtPrice(e.price, '', lang());
-      if (e.type === 'open') {
-        return '<li><span class="bot-log-time tiny muted">' + U.esc(U.fmtDateTime(e.ts, lang())) + '</span>' +
-          '<span>' + U.esc(T('bot.log.open', { side: side, symbol: e.symbol, price: price })) + '</span></li>';
-      }
+      var text;
+      if (e.type === 'start') text = T('bot.log.start', { size: money(e.price) });
+      else if (e.type === 'stop') text = T('bot.log.stop');
+      else if (e.type === 'open') text = T('bot.log.open', { side: side, symbol: e.symbol, price: price });
+      else if (e.type === 'propose') text = T('bot.log.propose', { side: side, symbol: e.symbol, price: price });
+      else if (e.type === 'expire') text = T('bot.log.expire', { symbol: e.symbol });
+      else if (e.type === 'decline') text = T('bot.log.decline', { symbol: e.symbol });
+      else if (e.type === 'manage') text = T('bot.log.manage', {
+        kind: T('bot.log.manage.' + e.kind), symbol: e.symbol,
+        stop: U.fmtPrice(e.stop, '', lang())
+      });
+      else if (e.type === 'live') text = T(e.outcome === 'sent' ? 'bot.log.live.sent' : 'bot.log.live.failed', {
+        symbol: e.symbol || '—', detail: e.status || ''
+      });
+      else text = T('bot.log.close', {
+        side: side, symbol: e.symbol, price: price,
+        reason: T('bot.closed.reason.' + e.reason), pnl: signedMoney(e.pnl)
+      });
       return '<li><span class="bot-log-time tiny muted">' + U.esc(U.fmtDateTime(e.ts, lang())) + '</span>' +
-        '<span>' + U.esc(T('bot.log.close', {
-          side: side, symbol: e.symbol, price: price,
-          reason: T('bot.closed.reason.' + e.reason), pnl: signedMoney(e.pnl)
-        })) + '</span></li>';
+        '<span>' + U.esc(text) + '</span>' +
+        (e.quip ? '<span class="bot-quip">' + U.esc(T(e.quip)) + '</span>' : '') + '</li>';
     }).join('');
     return '<section class="card span-12 bot-card" aria-labelledby="bot-log-title">' +
       '<div class="card-head"><h2 id="bot-log-title">' + ui.icon('clock', 14) + U.esc(T('bot.log.title')) + '</h2></div>' +
@@ -681,6 +971,7 @@
       '<div class="dash-grid">' +
         statsCard(state, summary) +
         brokerCard() +
+        personaCard(state, summary) + pendingCard(state) +
         positionsCard(state) + scanCard(state) +
         closedCard(state) + rulesCard() +
         logCard(state) +
@@ -700,8 +991,16 @@
       if (e.target.closest('[data-bot-toggle]')) { toggleBot(root); return; }
       if (e.target.closest('[data-bot-scan]')) { runScan(root); return; }
       if (e.target.closest('[data-bot-reset]')) { confirmReset(root); return; }
+      if (e.target.closest('[data-bot-authorize]')) { confirmLiveAutopilot(root); return; }
+      if (e.target.closest('[data-bot-revoke]')) { revokeAutopilot(root); return; }
       if (e.target.closest('[data-broker-refresh]')) { refreshBroker(root); return; }
       if (e.target.closest('[data-broker-disconnect]')) { disconnectBroker(root); return; }
+      var approve = e.target.closest('[data-pending-approve]');
+      if (approve) { approveProposal(root, approve.getAttribute('data-pending-approve')); return; }
+      var decline = e.target.closest('[data-pending-decline]');
+      if (decline) { declineProposal(root, decline.getAttribute('data-pending-decline')); return; }
+      var live = e.target.closest('[data-pending-live]');
+      if (live) { sendProposalLive(root, live.getAttribute('data-pending-live')); return; }
       var ticket = e.target.closest('[data-broker-order]');
       if (ticket) {
         var scan = readState().lastScan;
@@ -717,19 +1016,48 @@
       connectBroker(root, form);
     });
     root.addEventListener('change', function (e) {
+      if (!root.querySelector('[data-bot-view]')) return;
       var select = e.target.closest('[data-bot-max]');
-      if (!select || !root.querySelector('[data-bot-view]')) return;
-      var state = readState();
-      state.maxPositions = Number(select.value);
-      writeState(state);
-      ui.toast(T('common.saved'));
-      paint(root);
+      if (select) {
+        var state = readState();
+        state.maxPositions = Number(select.value);
+        writeState(state);
+        ui.toast(T('common.saved'));
+        paint(root);
+        return;
+      }
+      var approval = e.target.closest('[data-bot-approval]');
+      if (approval) { setApproval(root, approval.value); return; }
+      var stocks = e.target.closest('[data-bot-stocks]');
+      if (stocks) {
+        var next = readState();
+        next.autoStocks = !!stocks.checked;
+        writeState(next);
+        ui.toast(T(stocks.checked ? 'bot.auto.toast.stocksOn' : 'bot.auto.toast.stocksOff'));
+        paint(root);
+        if (next.enabled) runScan(root);
+      }
     });
+  }
+
+  function scheduleScans(root) {
+    if (scanTimer) { window.clearInterval(scanTimer); scanTimer = null; }
+    scanTimer = window.setInterval(function () {
+      var hash = window.location.hash || '';
+      if (!stillHere(root) || hash.indexOf('#/bot') !== 0) {
+        window.clearInterval(scanTimer);
+        scanTimer = null;
+        return;
+      }
+      var state = readState();
+      if (state.enabled) runScan(root);
+    }, AUTO_SCAN_MS);
   }
 
   function render(root) {
     paint(root);
     bind(root);
+    scheduleScans(root);
     var state = readState();
     if (state.enabled && (!state.lastScanAt || Date.now() - state.lastScanAt > AUTO_SCAN_MS)) runScan(root);
     if (brokerKeys() && !broker.loading && (!broker.at || Date.now() - broker.at > 60000)) refreshBroker(root, { quiet: true });

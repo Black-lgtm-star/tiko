@@ -117,6 +117,7 @@
           '<nav class="appnav">' +
             '<a href="#/" data-nav="dashboard">' + U.esc(T('nav.dashboard')) + '</a>' +
             '<a href="#/ideas" data-nav="ideas">' + U.esc(T('nav.ideas')) + '</a>' +
+            '<a href="#/sides" data-nav="sides">' + U.esc(T('nav.sides')) + '</a>' +
             '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<a href="#/bot" data-nav="bot">' + U.esc(T('nav.bot')) + '</a>' +
             '<a href="#/brokers" data-nav="brokers">' + U.esc(T('nav.brokers')) + '</a>' +
@@ -263,7 +264,7 @@
   }
 
   function markNav(routeName) {
-    var target = ['settings', 'markets', 'ideas', 'bot', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
+    var target = ['settings', 'markets', 'ideas', 'sides', 'bot', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
     U.$$('.appnav a[data-nav]', document).forEach(function (a) {
       if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -286,6 +287,7 @@
     }
     if (path === '/settings') return { name: 'settings', params: params };
     if (path === '/ideas') return { name: 'ideas', params: params };
+    if (path === '/sides') return { name: 'sides', params: params };
     if (path === '/markets') return { name: 'markets', params: params };
     if (path === '/brokers') return { name: 'brokers', params: params };
     if (path === '/bot') return { name: 'bot', params: params };
@@ -301,6 +303,7 @@
     if (route.name === 'analysis') return (route.params.symbol || T('an.crumb')) + ' · ' + T('app.name');
     if (route.name === 'settings') return T('set.title') + ' · ' + T('app.name');
     if (route.name === 'ideas') return T('ideas.title') + ' · ' + T('app.name');
+    if (route.name === 'sides') return T('sides.title') + ' · ' + T('app.name');
     if (route.name === 'markets') return T('nav.markets') + ' · ' + T('app.name');
     if (route.name === 'brokers') return T('nav.brokers') + ' · ' + T('app.name');
     if (route.name === 'bot') return T('bot.title') + ' · ' + T('app.name');
@@ -329,6 +332,7 @@
     if (route.name === 'analysis') TA.views.analysis.render(main, route.params);
     else if (route.name === 'settings') TA.views.settings.render(main);
     else if (route.name === 'ideas') TA.views.ideas.render(main);
+    else if (route.name === 'sides') TA.views.sides.render(main);
     else if (route.name === 'markets') TA.views.dashboard.renderMarkets(main);
     else if (route.name === 'brokers') TA.views.brokers.render(main);
     else if (route.name === 'bot') TA.views.bot.render(main);

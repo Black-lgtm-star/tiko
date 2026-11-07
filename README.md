@@ -7,10 +7,13 @@ snapshot, context, bull/bear evidence, key levels, conditional scenarios, risks 
 It also turns that read into a conditional **action plan** — trigger, stop loss, take profit,
 reward-to-risk and risk-based position sizing — recomputed from the live price for crypto. Stop loss
 and take profit can be overridden per symbol and lens, and the plan recalculates live. A paper trade
-bot can run the same rules against a virtual ledger, and an optional Alpaca connection can turn a
-scan candidate into a live order — only after you review and confirm it. An Ideas page ranks those
-same setups with fixed, visible weights so you can see which candidates score best. The app does
-not predict prices or trade automatically.
+bot runs the same rules against a virtual ledger, picks its timing and candidates, asks before each
+entry or opens them on its own, and manages its exits. An optional Alpaca connection can turn a
+scan candidate into a live order — after you review and confirm it, or under a live autopilot grant
+you explicitly enable for this tab. An Ideas page ranks those same setups with fixed, visible
+weights so you can see which candidates score best, and a Buy / Sell page pairs the long and short
+versions of each stock's plan side by side. The app does not predict prices, and live trading is
+never on unless you connect a broker and grant it.
 
 ## Run it
 
@@ -205,16 +208,19 @@ that every broker key resolves, the six-region and 20-question scope, the offici
 local checklist persistence and reset, and a full render smoke test (5 tests). The theme suite
 covers the dark default, preference normalization, system resolution against the device setting,
 `data-theme` and theme-color writes, persistence, EN/ES copy and the live system listener (7 tests).
-The bot suite covers state normalization, the open/watch/skip decision matrix, sized entries, the
-disabled, duplicate and position-limit guards, stop gaps filled at the worse price, target fills,
-short mirroring, plan flips closed at market, stats, start/pause and deterministic output (13
-tests). The broker suite covers key normalization and session storage, live and paper base URLs,
-Alpaca headers, account/position/order normalization, connect saving only after a successful
-account call, the canTrade gate, bracket-order construction and its crypto/short/fractional
-rejections, the explicit-confirmation gate, the POST payload and upstream error mapping (12 tests),
-with fetch and session storage injected. The session suite covers the one-shot role lookup,
-owner/member mapping, unknown and missing roles, rejected lookups and the no-fetch fallback
-(5 tests). All thirteen suites total 162 tests.
+The bot suite covers state normalization, the open/watch/skip decision matrix, timing windows and
+candidate ranking, the ask-mode proposal queue and its expiry and cap, approve and decline, the
+disabled, duplicate and position-limit guards, sized entries, stop gaps filled at the worse price,
+target fills, short mirroring, plan flips closed at market, breakeven and trailing exits, the
+deterministic persona voice, EN/ES copy coverage, stats, start/pause and deterministic output (24
+tests). The broker
+suite covers key normalization and session storage, live and paper base URLs, Alpaca headers,
+account/position/order normalization, connect saving only after a successful account call, the
+canTrade gate, bracket-order construction and its crypto/short/fractional rejections, the
+explicit-confirmation gate, the POST payload and upstream error mapping, and the session-scoped
+autopilot grant (13 tests), with fetch and session storage injected. The session suite covers the
+one-shot role lookup, owner/member mapping, unknown and missing roles, rejected lookups and the
+no-fetch fallback (5 tests). All thirteen suites total 188 tests.
 
 ## What is in the MVP
 
@@ -238,23 +244,33 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
   due-diligence checklist with local progress, red flags, 2026–28 trends and links to official
   regulator registers. Firms appear as examples only — never as endorsements, rankings or
   recommendations — and the page itself opens no account and routes no order. The separate Alpaca
-  connection on `#/bot` is optional and confirmation-gated.
-- **Paper trade bot** — an on-device, deterministic simulator on `#/bot` that scans the watchlist
-  (or BTC, ETH, AAPL, NVDA and SPY when it is empty), opens virtual positions only when the same
-  plan rules used on the Analysis page are active or triggered with at least medium confidence and
-  1.3R, sizes them from the account size and risk percentage in Settings, and closes them at the
-  plan stop, the target or a flipped plan. It keeps a virtual ledger, equity curve, win rate and R
-  multiples in this browser. It runs on simulated data by default and its results are not a
-  forecast of real performance.
+  connection on `#/bot` is optional, confirmation-gated, and never enabled by this page.
+- **Paper trade bot** — an on-device, deterministic simulator on `#/bot` that scouts the watchlist
+  plus a short U.S. stock list, ranks candidates by timing window and reward-to-risk, and enters
+  only when the same plan rules used on the Analysis page are active or triggered with at least
+  medium confidence and 1.3R. Entries are sized from the account size and risk percentage in
+  Settings. Each candidate is labelled with its timing: **now** (setup in play or triggered),
+  **armed** (price within 0.35 ATR of the trigger) or **waiting**. You choose how much autonomy it
+  has: **ask every time** queues proposals that you approve or decline (five at a time, expiring
+  after 30 minutes), while **on its own** opens paper positions directly. It manages exits itself —
+  stop, target, flipped plan, breakeven once the trade is up one risk unit and a half-R trail at
+  1.5R. It keeps a virtual ledger, equity curve, win rate and R multiples in this browser, has a
+  recognizable voice and mood, and scans every 15 minutes while the page is open and the bot is
+  running. It runs on simulated data by default and its results are not a forecast of real
+  performance.
 - **Optional Alpaca broker** — the bot page can connect an Alpaca account from this tab. Keys are
   kept in `sessionStorage` (`gt.broker.v1`), sent only to Alpaca, never stored on a server, and
   cleared when the tab closes or you disconnect. You choose live or paper mode; the card shows the
   account status, equity, buying power, broker positions and open orders. For a scan candidate the
   bot can build an order ticket, but nothing is sent until you tick the acknowledgement and press
-  **Send order** — there is no automatic or background order path, and tickets are offered only for
-  live stock scans less than an hour old. This build sends long stock and
-  ETF entries as whole-share market buys with a bracket stop and target; short setups and crypto
-  stay on the paper ledger. TIKOTrade is not affiliated with Alpaca, and the app is not investment advice.
+  **Send order**. Tickets are offered only for live stock scans less than an hour old. An explicit
+  **live autopilot** grant is the one exception: after a separate acknowledgement, the grant lives
+  in `sessionStorage` (`gt.broker.autopilot.session.v1`), dies with the tab, and lets the bot submit
+  at most one long stock or ETF bracket order per scan. Pausing the bot, disconnecting the broker,
+  changing mode or leaving auto mode revokes it — the pause button is the kill switch. This build
+  sends long stock and ETF entries as whole-share market buys with a bracket stop and target; short
+  setups and crypto stay on the paper ledger. TIKOTrade is not affiliated with Alpaca, and the app
+  is not investment advice.
 - **Ideas page** — `#/ideas` ranks the supported U.S. stocks with the same analysis and plan rules
   used elsewhere. A fixed weighted score (directional evidence 30, trend 20, reward-to-risk 18,
   setup state 15, liquidity 8, volume 5, confirmation checks 4) is reduced by visible penalties for
@@ -265,6 +281,15 @@ owner/member mapping, unknown and missing roles, rejected lookups and the no-fet
   plan rules, labels sample data, and lists the weights on the page. The ranking is a transparent
   review aid built from fixed rules — not a personalized recommendation, a rating service, a price
   forecast or a guarantee.
+- **Buy / Sell page** — `#/sides` shows, for every supported U.S. stock, what a long and a short
+  case would look like from the same analysis. Each row pairs the two directions side by side: the
+  buy panel carries the entry, stop and target for a long plan, and the sell panel the mirrored
+  short plan, each with reward-to-risk, risk and reward per share and the distance to target and
+  stop. The row header shows the quote, the change and the last-bar lean, and the panel that matches
+  the lean is marked. Both panels are conditional reads produced by the same `tradeplan` rules the
+  analysis page uses — a forced direction gets a transparent hypothetical scenario even when the
+  rule-based setup has no edge, and sample data is labelled and never sized. Rows are ordered by the
+  strength of the lean. Neither panel is a recommendation to trade either direction.
 - **Analysis page** — identical seven-section structure for every asset:
   1. Snapshot (price, timeframe, data timestamp)
   2. Market context (trend, volatility, liquidity, momentum, news/event coverage)
@@ -405,14 +430,15 @@ js/catalog.js       supported assets, search, sample-series parameters
 js/data.js          providers, caching, fallback, stock quote proxy, overview/quotes, FX rates
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
-js/bot.js           deterministic paper-trading loop, virtual ledger and stats
+js/bot.js           deterministic paper-trading loop, proposals, exits, persona and stats
 js/recommend.js     deterministic ranking of stock setups: weighted score, tiers, sector cap
-js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate
+js/sides.js         one analysis input → mirrored buy and sell plan cases with per-share risk
+js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate, autopilot grant
 js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/charts.js        SVG line charts and sparklines
 js/ui.js            icons, modal, toast, search combobox, glossary, badges
-js/views/*.js       onboarding, dashboard, ideas, analysis, settings, brokers reference, paper bot
+js/views/*.js       onboarding, dashboard, ideas, sides, analysis, settings, brokers reference, paper bot
 js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
@@ -432,41 +458,54 @@ measure the plotted series. The file never leaves the device, and the scanner re
 the copilot labels axis values and timeframe as unread. No LLM is involved and nothing is sent to a
 server by this app. Account size and risk percentage are stored only in `gt.settings.v1`; the plan
 never sends an order anywhere. The paper bot is pure as well: `bot.scan` takes the current ledger
-and a list of asset/analysis/plan inputs, manages open positions, ranks new candidates by R:R and
-returns a new ledger, events and decisions. The view only fetches market data and stores the
-result under `gt.bot.v1`. `recommend.rank` is pure too: it scores a list of
+and a list of asset/analysis/plan inputs, manages open positions (including breakeven and trailing
+stops), ranks new candidates by timing window and R:R, and returns a new ledger, events and
+decisions. In ask mode it queues proposals instead of opening; `bot.approve` and `bot.decline` then
+move or drop them. `bot.voice` chooses a persona line from a seed, so the copy is reproducible. The
+view only fetches market data and stores the result under `gt.bot.v1`. `recommend.rank` is pure too: it scores a list of
 asset/analysis/plan inputs with fixed weights, applies the visible penalties, sorts by score and
 reward-to-risk, caps the shortlist per sector and returns ideas plus deferred candidates. The Ideas
 view only fetches the catalog's daily series and feeds the same analysis, plan and decision
-functions used everywhere else. The single network path to a broker is `broker.submit`, which is reachable
-only from the review dialog after the acknowledgement checkbox is ticked; `broker.submit` itself
-rejects any call whose `deps.confirm` is not exactly `true`. Keys are read from session storage at
-call time and are never written to the ledger, the DOM, logs or a server.
+functions used everywhere else. `sides.build` is pure too: it runs `tradeplan.build` twice on the
+same analysis with the side forced long and short, then reports both conditional cases, their
+per-share risk and reward and whether each case is actionable; it never promotes a hypothetical
+scenario to a confirmed setup. The Buy / Sell view only fetches the catalog's daily series and sorts
+rows by the strength of the lean. The single network path to a broker is `broker.submit`, which is reachable
+from the review dialog after the acknowledgement checkbox is ticked, or from a scan while a live
+autopilot grant is present; `broker.submit` itself rejects any call whose `deps.confirm` is not
+exactly `true`, and the grant can only be created for live keys. The grant is read at scan time,
+never covers crypto or short setups, and is cleared by pause, disconnect, a mode change or leaving
+auto mode. Keys are read from session storage at call time and are never written to the ledger, the
+DOM, logs or a server.
 
 Storage keys: `gt.settings.v1` also holds `theme` (`dark`, `light` or `system`), `accountSize` and
 `riskPct` for the sizing calculator.
 
-Routes: `#/`, `#/ideas`, `#/markets`, `#/bot`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
+Routes: `#/`, `#/ideas`, `#/sides`, `#/markets`, `#/bot`, `#/brokers`, `#/settings`, `#/analysis/:symbol?style=&cls=&id=&name=`.
 The two extra query parameters let non-catalog crypto assets (resolved via CoinGecko search) reopen
 correctly from recents or the watchlist.
 
 ### Storage keys
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
-`gt.planlevels.v1`, `gt.brokerchecks.v1`, `gt.bot.v1`, and — in session storage only — `gt.broker.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+`gt.planlevels.v1`, `gt.brokerchecks.v1`, `gt.bot.v1`, and — in session storage only —
+`gt.broker.v1` and `gt.broker.autopilot.session.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
 reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
 (`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
 shared profile and removed on first load.
 Recents are capped at 12 (deduped by symbol), feedback at 300 items, notes at 2,000 characters.
 `gt.brokerchecks.v1` stores only the boolean state of the broker due-diligence checklist; it is
 cleared by the checklist reset and by Reset all data.
-`gt.bot.v1` holds the paper ledger: running state, open and closed positions, the last scan's
-decisions, the activity log (200 entries), realised P&L and up to 120 equity snapshots. Open
-positions are capped at 2, 3 or 5 by the page control, closed trades at 120. The bot's reset button
-and Reset all data both clear it.
+`gt.bot.v1` holds the paper ledger: running state, approval mode, open and closed positions,
+pending proposals, the last scan's decisions, the activity log (200 entries), realised P&L and up
+to 120 equity snapshots. Open positions are capped at 2, 3 or 5 by the page control, proposals at
+five with a 30-minute expiry, closed trades at 120. The bot's reset button and Reset all data both
+clear it.
 `gt.broker.v1` is the exception: it holds the Alpaca key ID, secret and mode in `sessionStorage`
 only, is never serialized into the ledger or a reset export, and disappears when the tab closes.
-The app holds no server-side copy.
+`gt.broker.autopilot.session.v1` holds the live autopilot grant and nothing else; it requires live
+`gt.broker.v1` keys to be read, covers one long stock or ETF order per scan, and is removed by
+pause, disconnect, a mode change or leaving auto mode. The app holds no server-side copy.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKOTrade's same-origin `/api/quote` proxy to Yahoo Finance.
 
@@ -511,26 +550,35 @@ still being translated.
 
 ## Scope boundaries
 
-Included: stocks and crypto, on-demand analysis, a ranked Ideas page built from fixed rules, search,
+Included: stocks and crypto, on-demand analysis, a ranked Ideas page built from fixed rules, a
+buy/sell comparison page for every supported stock, search,
 watchlist, recent analyses, local feedback, a simulated paper trade bot whose ledger never leaves
 the browser, and an optional Alpaca connection that sends a live order only after per-order
-confirmation.
+confirmation or an explicit, session-scoped live autopilot grant.
 Excluded by design: personalized advice, brokerage ratings or endorsements, price forecasts,
-price or trigger alerts, automatic order execution, portfolio tracking, licensed
+price or trigger alerts, automatic order execution without a revocable opt-in, portfolio tracking, licensed
 news/event feeds, options chains, fundamental valuation data. Market-session open/close reminders
 are included because they describe exchange hours, not a trade recommendation. The Ideas page ranks
 rule-based setups so they can be reviewed side by side; its score is not a probability, a target or
-a promise. The page named "trade bot" runs as a deterministic simulator by default; live orders
-exist only through the explicitly connected Alpaca account, are limited to long stock and ETF
-brackets, and always require the review dialog.
+a promise. The Buy / Sell page shows both conditional directions for comparison; the presence of a
+sell case for a bullish lean — or the reverse — is symmetry in the tool, not a suggestion to take
+the other side. The page named "trade bot" runs as a deterministic simulator by default; you choose
+whether it asks before each paper entry or opens them on its own, and either way it manages and
+closes the positions it opened. Live orders exist only through the explicitly connected Alpaca
+account, are limited to long stock and ETF brackets, and require either the review dialog or the
+session-only autopilot grant you enable after a separate acknowledgement.
 
 ## Disclaimer
 
 Informational only. This is a description of a market setup produced by fixed rules, not investment
 advice, personalized advice, a guarantee or a promise of returns. The Ideas page ranks those setups
 with the weights shown on the page so you can review them; the ranking is not a ratings service, a
-price forecast or a personalized recommendation. The action plan is a conditional read of levels,
+price forecast or a personalized recommendation. The Buy / Sell page pairs a long and a short case
+for the same analysis so you can compare the levels; both cases are conditional reads of structure,
+not recommendations to take either side. The action plan is a conditional read of levels,
 trend and volume — not a forecast or an order. Data may be delayed, incomplete or — where
 labeled — synthetic. The optional Alpaca connection can send a real order to your account only after
-you review and confirm it; you are responsible for every order sent from your account. TIKOTrade is not
-affiliated with Alpaca. You are responsible for your decisions.
+you review and confirm it, or while a live autopilot grant you enabled from this tab remains active;
+that grant is session-only, limited to one long stock or ETF order per scan, and is revoked by
+pause, disconnect, a mode change or leaving auto mode. You are responsible for every order sent
+from your account. TIKOTrade is not affiliated with Alpaca. You are responsible for your decisions.
