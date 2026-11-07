@@ -59,11 +59,13 @@ tab storage and cleared when the tab ends. If a browser still holds data from th
 device-account build, the app folds the signed-in profile back into the shared local profile and
 deletes the stored password hashes and session on first load.
 
-The access request form is the one place data leaves the device: the name, email and note are stored
-in the project's Redis for 14 days and emailed to the owner; KV-issued access codes are stored as
-SHA-256 hashes for 30 days. Owner-issued signed codes contain only an expiry and a signature, so
-they carry no personal data and are never stored. Nothing else about the visitor is collected, and
-the request page is the only public page that collects contact details.
+The access request form and the optional access-pass checkout are where data leaves the device: a
+request stores the name, email and note in the project's Redis for 14 days and emails them to the
+owner; an access pass is paid through Stripe, which receives the buyer's email and handles the card
+details, while the app stores only the email, pass length, expiry and amount in Redis and the access
+code as a SHA-256 hash. Owner-issued signed codes contain only an expiry and a signature, so they
+carry no personal data and are never stored. Nothing else about the visitor is collected, and the
+request and buy pages are the only public pages that collect contact details.
 
 ## Private access gate
 
@@ -72,7 +74,7 @@ Edge Function that runs before any file is read:
 
 - The owner password is stored only as `TIKO_ACCESS_PASSWORD` in Vercel Production; a second secret,
   `TIKO_SESSION_SECRET`, signs the session cookie. Neither value is in the repository. Only the
-  owner signs in with a password — everyone else needs a personal code.
+  owner signs in with a password — everyone else needs a personal code or a paid access pass.
 - A correct password sets `tiko_access` — HttpOnly, Secure, SameSite=Lax, seven days. `/logout`
   clears it, and Settings has a Sign out button.
 - The signed session records whether it came from the owner password or a personal code.
@@ -82,8 +84,9 @@ Edge Function that runs before any file is read:
 - Missing either variable fails closed: every request redirects to `/login?error=setup` and the API
   returns `401`, so an unconfigured deployment never serves the app.
 - Eight wrong passwords or codes from one IP in ten minutes lock that IP out for the rest of the window.
-- `/login` and `/request` are the only public pages, with a `default-src 'none'` policy, and every
-  response carries `X-Robots-Tag: noindex, nofollow`. `/admin` and `/admin/review` are owner-only.
+- `/login` and `/request` are the only public form pages, with a `default-src 'none'` policy, and
+  every response carries `X-Robots-Tag: noindex, nofollow`. `/buy` and `/purchase/success` are also
+  public, and `/admin` and `/admin/review` are owner-only.
 - Staging can delegate sign-in to Vercel. When `VERCEL_ENV` is `preview` and `TIKO_PREVIEW_OPEN` is
   `1`, requests that already passed Vercel Authentication are treated as the owner, so every device
   signed into the owner's Vercel account opens the app without a second password. Keep Deployment
@@ -127,6 +130,38 @@ address per hour, and protected by a honeypot field and an origin check. If the 
 be delivered (for example, no verified sending domain yet), the review page shows the code once for
 the owner to forward.
 
+## Access passes
+
+People without an owner code can buy time instead of asking for one:
+
+1. `/buy` offers a 7-day pass for $5 and a 30-day pass for $12. Each button posts to `/api/checkout`.
+2. The middleware creates a Stripe Checkout Session server-side with the price ID from
+   `STRIPE_PRICE_7D` or `STRIPE_PRICE_30D` and the pass length in metadata, then redirects to
+   Stripe's hosted page. Card details never reach this app and no Stripe script is loaded, so the
+   CSP stays `script-src 'self'`.
+3. Stripe returns the buyer to `/purchase/success?session_id=...`. The middleware fetches that
+   session from Stripe, accepts it only when `payment_status` is `paid`, records the pass in Redis
+   (email, days, expiry, amount), and signs the browser in with a member cookie that expires with
+   the pass. It also mints a reusable `XXXX-XXXX-XXXX` code, stores only its SHA-256 hash with the
+   pass expiry, and emails the code through Resend for use on another device.
+4. `/api/stripe-webhook` records the same pass from `checkout.session.completed` (and
+   `checkout.session.async_payment_succeeded`), so a buyer who closes the tab after paying still gets
+   access and the emailed code. It verifies the `Stripe-Signature` HMAC against
+   `STRIPE_WEBHOOK_SECRET` with a five-minute timestamp tolerance, ignores unpaid or unrelated
+   events, and uses Redis `SET NX` so redelivery cannot duplicate a pass or an email.
+
+Passes do not renew, and Stripe holds the card data. The app keeps only the email, pass length,
+expiry, amount and currency in Redis for 90 days so an old success link cannot reactivate a pass,
+plus the code hash until the pass expires. Refunds, tax and receipts are handled in the Stripe
+Dashboard; a refund does not revoke an already-recorded pass, so delete `tiko:pass:<session_id>` and
+the matching `tiko:code:<hash>` to end it early. If Resend is not configured, the code is still shown
+once on the success page.
+
+A pass and any code it mints are member-level: they open the app but get `403 Owner only` from
+`/admin`, cannot mint codes, and map to `{ "role": "member" }` at `/api/session`. `TIKO_ACCESS_PASSWORD`
+and `TIKO_OWNER_KEY` stay in Vercel's environment and are never rendered, emailed, logged or stored
+in Redis; rotating either one ends the surfaces that depend on it and nothing else.
+
 ### Gate environment variables
 
 | Variable | Purpose |
@@ -139,6 +174,14 @@ the owner to forward.
 | `RESEND_API_KEY` | Resend key used for both emails |
 | `TIKO_MAIL_FROM` | Optional sender, e.g. `TIKOTrade <access@yourdomain>`; defaults to `onboarding@resend.dev` |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV / Upstash Redis REST credentials |
+| `STRIPE_SECRET_KEY` | Server-side Stripe key for creating Checkout Sessions and re-checking payments |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for `/api/stripe-webhook` (from the Stripe webhook endpoint) |
+| `STRIPE_PRICE_7D`, `STRIPE_PRICE_30D` | Stripe Price IDs for the $5 and $12 passes |
+
+Purchases need Stripe, KV, Resend (for the emailed code) and both Price IDs. The buy page prints
+$5 and $12; keep those labels in step with the Stripe Prices. Register
+`https://<your-domain>/api/stripe-webhook` in the Stripe Dashboard and copy its signing secret.
+Without `STRIPE_SECRET_KEY` the buy page reports that passes are closed and the app stays code-only.
 
 `TIKO_KV_URL`/`TIKO_KV_TOKEN` and `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` are also read.
 KV-issued codes are stored as SHA-256 hashes; the plaintext code is shown on the review page for one
@@ -160,7 +203,10 @@ that with a Content-Security-Policy (`vercel.json`):
 - No third-party search redirect: ticker lookup stays in the app through the catalog, Markets page and U.S. stock directory.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
 - HSTS, same-origin opener/resource policies and restrictive cross-domain policy headers add transport and origin isolation.
-- Twelve Vercel WAF rules deny unsafe stock and quote API methods, requests missing their required parameters, oversized symbol lists, secret-file probes and common CMS probes; scanner-like API clients receive a challenge. Vercel's platform firewall also applies its managed DDoS mitigation automatically.
+- Fourteen Vercel WAF rules deny unsafe stock, quote, checkout and webhook methods, requests missing
+  their required parameters, oversized symbol lists, secret-file probes and common CMS probes;
+  scanner-like API clients receive a challenge. Vercel's platform firewall also applies its managed
+  DDoS mitigation automatically.
 
 Assets are served from the same origin (fonts and images are local), so nothing is loaded from a
 CDN that could inject content. Keep this policy in place if you change hosting.
@@ -170,7 +216,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/purchases.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -223,7 +269,13 @@ canTrade gate, bracket-order construction and its crypto/short/fractional reject
 explicit-confirmation gate, the POST payload and upstream error mapping, and the session-scoped
 autopilot grant (13 tests), with fetch and session storage injected. The session suite covers the
 one-shot role lookup, owner/member mapping, unknown and missing roles, rejected lookups and the
-no-fetch fallback (5 tests). All sixteen suites total 193 tests.
+no-fetch fallback (5 tests). The purchase suite covers the public buy page, server-priced Checkout
+Sessions, pass metadata and return URLs, foreign, unknown, failed and burst checkouts, webhook
+signature, timestamp and secret checks, paid-pass storage and emailed codes, redelivery
+idempotency, unpaid and unrelated events, success-page verification, auto sign-in with a
+pass-length cookie, invalid and unpaid claims, replay after expiry, late claims that never extend a
+pass, member-only access with no route to owner surfaces, owner secrets absent from every page and
+email, and the closed state without Stripe (13 tests). All seventeen suites total 206 tests.
 
 ## What is in the MVP
 

@@ -17,9 +17,18 @@ const CODE_VERSION = 1;
 const CODE_BYTES = 15;
 const CODE_MAC_BYTES = 10;
 const CODE_DAYS = [1, 7, 14, 30];
+const PASSES = [
+  { days: 7, env: 'STRIPE_PRICE_7D', label: '$5' },
+  { days: 30, env: 'STRIPE_PRICE_30D', label: '$12' }
+];
+const CHECKOUT_WINDOW = 60 * 60 * 1000;
+const MAX_CHECKOUTS = 8;
+const STRIPE_TOLERANCE = 300;
+const PASS_TTL = 60 * 60 * 24 * 90;
 const encoder = new TextEncoder();
 const fails = new Map();
 const requestHits = new Map();
+const checkoutHits = new Map();
 
 export const config = { matcher: '/:path*' };
 
@@ -47,6 +56,24 @@ export default async function middleware(req) {
   if (path === '/request' || path === '/request/') {
     if (req.method === 'POST') return requestSubmit(req, url);
     return requestPage(url);
+  }
+
+  if (path === '/buy' || path === '/buy/') {
+    return buyPage(url);
+  }
+
+  if (path === '/purchase/success' || path === '/purchase/success/') {
+    return purchaseSuccess(url);
+  }
+
+  if (path === '/api/checkout' || path === '/api/checkout/') {
+    if (req.method !== 'POST') return json({ error: 'method' }, 405);
+    return checkout(req, url);
+  }
+
+  if (path === '/api/stripe-webhook' || path === '/api/stripe-webhook/') {
+    if (req.method !== 'POST') return json({ error: 'method' }, 405);
+    return stripeWebhook(req);
   }
 
   if (path === '/admin/review' || path === '/admin/review/') {
@@ -191,8 +218,8 @@ function clearFailure(ip) {
   fails.delete(ip);
 }
 
-function cookieHeader(value) {
-  return COOKIE + '=' + value + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + MAX_AGE;
+function cookieHeader(value, maxAge) {
+  return COOKIE + '=' + value + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + (maxAge || MAX_AGE);
 }
 
 async function login(req, url) {
@@ -495,10 +522,379 @@ function requestLimited(ip) {
 
 function sameOrigin(req, url) {
   const origin = req.headers.get('origin');
-  if (origin && origin !== url.origin) return false;
   const site = req.headers.get('sec-fetch-site');
   if (site && site !== 'same-origin' && site !== 'none') return false;
-  return true;
+  if (!origin || origin === url.origin) return true;
+  /* Sandboxed and privacy-hardened browsers report an opaque origin; Sec-Fetch-Site still proves same-site. */
+  return origin === 'null' && site === 'same-origin';
+}
+
+/* ---------------- access passes (Stripe Checkout) ---------------- */
+
+function paymentsConfigured() {
+  return Boolean(process.env.STRIPE_SECRET_KEY) && codesEnabled();
+}
+
+function passAvailable(plan) {
+  return Boolean(process.env[plan.env]);
+}
+
+function paymentsSellable() {
+  return paymentsConfigured() && PASSES.some(passAvailable);
+}
+
+function passPlan(value) {
+  const days = Number(value);
+  for (let i = 0; i < PASSES.length; i++) {
+    if (PASSES[i].days === days) return PASSES[i];
+  }
+  return null;
+}
+
+function passDays(value) {
+  const plan = passPlan(value);
+  return plan ? plan.days : 0;
+}
+
+function stripeSessionId(value) {
+  return typeof value === 'string' && /^cs_(?:test|live)_[A-Za-z0-9_]{8,200}$/.test(value);
+}
+
+function sessionEmail(session) {
+  const details = session.customer_details || {};
+  return cleanText(details.email || session.customer_email || '', 254).toLowerCase();
+}
+
+async function stripePost(path, body) {
+  const res = await fetch('https://api.stripe.com/v1/' + path, {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + (process.env.STRIPE_SECRET_KEY || ''),
+      'content-type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString(),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) throw new Error('stripe_http_' + res.status);
+  return res.json();
+}
+
+async function stripeGet(path) {
+  const res = await fetch('https://api.stripe.com/v1/' + path, {
+    headers: { authorization: 'Bearer ' + (process.env.STRIPE_SECRET_KEY || '') },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!res.ok) throw new Error('stripe_http_' + res.status);
+  return res.json();
+}
+
+async function hmacText(keyText, payload) {
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(keyText), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(payload)));
+}
+
+function sameText(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+async function stripeSignature(payload, header, keyText) {
+  if (typeof header !== 'string' || !header) return false;
+  let timestamp = 0;
+  const signatures = [];
+  header.split(',').forEach(function (part) {
+    const at = part.indexOf('=');
+    if (at < 0) return;
+    const name = part.slice(0, at).trim();
+    const value = part.slice(at + 1).trim();
+    if (name === 't') timestamp = Number(value);
+    else if (name === 'v1') signatures.push(value);
+  });
+  if (!Number.isFinite(timestamp) || !signatures.length) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - timestamp) > STRIPE_TOLERANCE) return false;
+  const expected = hex(await hmacText(keyText, timestamp + '.' + payload));
+  return signatures.some(function (sig) { return sameText(sig, expected); });
+}
+
+function checkoutLimited(ip) {
+  const now = Date.now();
+  const entry = checkoutHits.get(ip);
+  if (!entry || now - entry.start >= CHECKOUT_WINDOW) {
+    checkoutHits.set(ip, { count: 1, start: now });
+    if (checkoutHits.size > 500) checkoutHits.clear();
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > MAX_CHECKOUTS;
+}
+
+function buyErrorText(code) {
+  if (code === 'origin') return 'That request did not come from this site.';
+  if (code === 'slow') return 'Too many checkout attempts from this network. Wait a while and try again.';
+  if (code === 'unavailable') return 'That pass is not for sale right now.';
+  if (code === 'failed') return 'Checkout could not start. Try again in a moment.';
+  if (code === 'canceled') return 'Checkout was canceled. You were not charged.';
+  return '';
+}
+
+function passPlanHtml(plan) {
+  return '<form method="post" action="/api/checkout" class="plan">' +
+      '<input type="hidden" name="days" value="' + plan.days + '">' +
+      '<b>' + plan.days + '-day pass</b>' +
+      '<div class="price">' + esc(plan.label) + '</div>' +
+      '<span>' + plan.days + ' days of full access, then it ends by itself. No subscription.</span>' +
+      '<button type="submit">Buy ' + plan.days + '-day pass</button>' +
+    '</form>';
+}
+
+function buyPage(url) {
+  if (!paymentsSellable()) {
+    return gateResponse('Access passes',
+      '<h1>Passes are closed</h1>' +
+      '<p>Payments are not configured on this deployment. Ask the owner for an access code.</p>' +
+      '<p class="note"><a href="/login">Back to sign in</a> · <a href="/request">Request access</a></p>');
+  }
+  const error = buyErrorText(url.searchParams.get('error')) ||
+    (url.searchParams.get('canceled') === '1' ? buyErrorText('canceled') : '');
+  return gateResponse('Access passes',
+    '<h1>Access passes</h1>' +
+    '<p>Buy a pass to open TIKOTrade right away — no owner code needed. Stripe handles the payment on its own ' +
+    'page; your card details never reach this site.</p>' +
+    (error ? '<div class="error" role="alert">' + esc(error) + '</div>' : '') +
+    PASSES.filter(passAvailable).map(passPlanHtml).join('') +
+    '<p class="note">Prices in USD; sales tax may apply at checkout. Passes do not renew. ' +
+    'After payment this device is signed in and the app emails your access code. ' +
+    'Contact the owner for refunds.<br><a href="/login">Already have a code? Sign in</a> · ' +
+    '<a href="/request">Ask for access</a></p>',
+    200,
+    { 'content-security-policy': GATE_CSP.replace("form-action 'self'", "form-action 'self' https://checkout.stripe.com") });
+}
+
+async function checkout(req, url) {
+  if (!paymentsSellable()) return redirect(url, '/buy?error=unavailable');
+  if (!sameOrigin(req, url)) return redirect(url, '/buy?error=origin');
+  if (checkoutLimited(clientIp(req))) return redirect(url, '/buy?error=slow');
+  const form = await req.formData();
+  const plan = passPlan(form.get('days'));
+  if (!plan || !passAvailable(plan)) return redirect(url, '/buy?error=unavailable');
+  const body = new URLSearchParams();
+  body.set('mode', 'payment');
+  body.set('line_items[0][price]', process.env[plan.env]);
+  body.set('line_items[0][quantity]', '1');
+  body.set('success_url', new URL('/purchase/success?session_id={CHECKOUT_SESSION_ID}', url).toString());
+  body.set('cancel_url', new URL('/buy?canceled=1', url).toString());
+  body.set('metadata[days]', String(plan.days));
+  body.set('metadata[pass]', plan.days + '-day');
+  body.set('expires_at', String(Math.floor(Date.now() / 1000) + 1800));
+  try {
+    const session = await stripePost('checkout/sessions', body);
+    if (!session || typeof session.url !== 'string') throw new Error('stripe_shape');
+    return new Response(null, {
+      status: 303,
+      headers: { location: session.url, 'cache-control': 'no-store' }
+    });
+  } catch (err) {
+    return redirect(url, '/buy?error=failed');
+  }
+}
+
+async function stripeWebhook(req) {
+  const key = process.env.STRIPE_WEBHOOK_SECRET || '';
+  if (!key) return json({ error: 'not_configured' }, 500);
+  const payload = await req.text();
+  if (!(await stripeSignature(payload, req.headers.get('stripe-signature'), key))) {
+    return json({ error: 'invalid_signature' }, 400);
+  }
+  let event;
+  try {
+    event = JSON.parse(payload);
+  } catch (err) {
+    return json({ error: 'bad_payload' }, 400);
+  }
+  if (event.type !== 'checkout.session.completed' &&
+      event.type !== 'checkout.session.async_payment_succeeded') {
+    return json({ received: true });
+  }
+  const session = event.data && event.data.object ? event.data.object : null;
+  if (!session || session.object !== 'checkout.session' || session.payment_status !== 'paid') {
+    return json({ received: true });
+  }
+  const days = passDays(session.metadata && session.metadata.days);
+  if (!days || !stripeSessionId(session.id)) return json({ received: true });
+  try {
+    const origin = new URL(req.url).origin;
+    const stored = await recordPass(session, days);
+    const code = await passCodeFor(session.id, stored.record.email, stored.record.exp);
+    if (code) await deliverPassCode(session.id, stored.record.email, code, days, stored.record.exp, origin);
+  } catch (err) {
+    return json({ error: 'retry' }, 500);
+  }
+  return json({ received: true });
+}
+
+async function recordPass(session, days) {
+  const id = String(session.id || '');
+  const exp = Math.floor(Date.now() / 1000) + days * 86400;
+  const record = {
+    email: sessionEmail(session),
+    days: days,
+    exp: exp,
+    amount: Number(session.amount_total) || 0,
+    currency: String(session.currency || 'usd'),
+    paidAt: new Date().toISOString()
+  };
+  const key = 'tiko:pass:' + id;
+  const fresh = await kvCommand(['SET', key, JSON.stringify(record), 'EX', String(PASS_TTL), 'NX']);
+  if (fresh === 'OK') return { first: true, record: record };
+  const raw = await kvCommand(['GET', key]);
+  if (typeof raw === 'string') {
+    try {
+      const stored = JSON.parse(raw);
+      if (stored && Number.isFinite(Number(stored.exp))) return { first: false, record: stored };
+    } catch (err) {
+      /* fall through to the fresh record */
+    }
+  }
+  return { first: false, record: record };
+}
+
+async function passCodeFor(sessionId, email, exp) {
+  const key = 'tiko:pass:code:' + sessionId;
+  const existing = await kvCommand(['GET', key]);
+  if (typeof existing === 'string' && existing) return existing;
+  const ttl = exp - Math.floor(Date.now() / 1000);
+  if (ttl <= 0) return '';
+  const code = makeCode();
+  const hash = await sha256('code:' + normalizeCode(code));
+  await kvCommand(['SET', 'tiko:code:' + hash, JSON.stringify({
+    email: email, exp: exp, issuedAt: new Date().toISOString(), source: 'stripe', sessionId: sessionId
+  }), 'EX', String(ttl)]);
+  const stored = await kvCommand(['SET', key, code, 'EX', String(ttl), 'NX']);
+  if (stored === 'OK') return code;
+  const winner = await kvCommand(['GET', key]);
+  return typeof winner === 'string' && winner ? winner : code;
+}
+
+function passText(code, days, exp, origin) {
+  return 'Your TIKOTrade ' + days + '-day pass is active until ' + codeExpiry(exp) + '.\n\n' +
+    'Your access code: ' + code + '\n\n' +
+    'This device is already signed in. To open the app on another device, go to ' + origin + '/login and enter the code. ' +
+    'The code stops working when the pass ends.\n\n' +
+    'TIKOTrade is informational only; an optional broker connection can place orders only with your permission.';
+}
+
+function passHtml(code, days, exp, origin) {
+  return '<p>Your TIKOTrade ' + days + '-day pass is active until ' + esc(codeExpiry(exp)) + '.</p>' +
+    '<p>Your access code:</p>' +
+    '<p style="font:600 22px ui-monospace,Menlo,monospace;letter-spacing:.08em">' + esc(code) + '</p>' +
+    '<p>This device is already signed in. To open the app on another device, go to ' +
+    '<a href="' + esc(origin) + '/login">' + esc(origin) + '/login</a> and enter the code. ' +
+    'The code stops working when the pass ends.</p>' +
+    '<p style="color:#666;font-size:12px">TIKOTrade is informational only; an optional broker connection can place orders only with your permission.</p>';
+}
+
+async function deliverPassCode(sessionId, email, code, days, exp, origin) {
+  if (!validEmail(email)) return { ok: false, reason: 'no_email' };
+  const key = 'tiko:pass:mail:' + sessionId;
+  const claimed = await kvCommand(['SET', key, '1', 'EX', '86400', 'NX']);
+  if (claimed !== 'OK') return { ok: true, reason: 'already' };
+  const sent = await sendMail(email, 'Your TIKOTrade pass', passText(code, days, exp, origin), passHtml(code, days, exp, origin));
+  if (!sent.ok) {
+    try {
+      await kvCommand(['DEL', key]);
+    } catch (err) {
+      /* best effort */
+    }
+    return { ok: false, reason: 'send_failed' };
+  }
+  return { ok: true, reason: '' };
+}
+
+async function claimPass(url) {
+  const id = url.searchParams.get('session_id') || '';
+  if (!stripeSessionId(id)) return { ok: false, reason: 'missing' };
+  if (!paymentsConfigured()) return { ok: false, reason: 'closed' };
+  let session;
+  try {
+    session = await stripeGet('checkout/sessions/' + encodeURIComponent(id));
+  } catch (err) {
+    return { ok: false, reason: 'failed' };
+  }
+  if (!session || session.id !== id || session.payment_status !== 'paid') {
+    return { ok: false, reason: 'unpaid' };
+  }
+  const days = passDays(session.metadata && session.metadata.days);
+  if (!days) return { ok: false, reason: 'failed' };
+  let stored;
+  try {
+    stored = await recordPass(session, days);
+  } catch (err) {
+    return { ok: false, reason: 'failed' };
+  }
+  if (Number(stored.record.exp) <= Math.floor(Date.now() / 1000)) {
+    return { ok: false, reason: 'expired' };
+  }
+  let code = '';
+  try {
+    code = await passCodeFor(id, stored.record.email, Number(stored.record.exp));
+    if (code) await deliverPassCode(id, stored.record.email, code, days, stored.record.exp, url.origin);
+  } catch (err) {
+    code = '';
+  }
+  return { ok: true, days: days, record: stored.record, code: code };
+}
+
+async function purchaseSuccess(url) {
+  if (!paymentsConfigured()) {
+    return gateResponse('Access passes',
+      '<h1>Passes are closed</h1>' +
+      '<p>Payments are not configured on this deployment.</p>' +
+      '<p class="note"><a href="/login">Back to sign in</a></p>');
+  }
+  const claimed = await claimPass(url);
+  if (!claimed.ok) {
+    if (claimed.reason === 'missing') {
+      return gateResponse('Access passes',
+        '<h1>Checkout link missing</h1>' +
+        '<p>Open the confirmation link that Stripe returned after payment.</p>' +
+        '<p class="note"><a href="/buy">Buy a pass</a> · <a href="/login">Sign in</a></p>');
+    }
+    if (claimed.reason === 'unpaid') {
+      return gateResponse('Access passes',
+        '<h1>Payment not complete</h1>' +
+        '<p>Stripe has not confirmed this checkout yet. If you were charged, reload this page in a moment.</p>' +
+        '<p class="note"><a href="/buy">Back to passes</a></p>');
+    }
+    if (claimed.reason === 'expired') {
+      return gateResponse('Access passes',
+        '<h1>This pass has ended</h1>' +
+        '<p>It was activated when it was bought, and passes do not renew. Buy a new pass to continue.</p>' +
+        '<p class="note"><a href="/buy">Buy a pass</a> · <a href="/login">Sign in</a></p>');
+    }
+    return gateResponse('Access passes',
+      '<h1>Could not confirm the payment</h1>' +
+      '<p>Stripe did not answer. Reload in a moment; you were not charged twice.</p>' +
+      '<p class="note"><a href="/buy">Back to passes</a></p>');
+  }
+  const record = claimed.record;
+  const until = codeExpiry(record.exp);
+  const remaining = Number(record.exp) - Math.floor(Date.now() / 1000);
+  return gateResponse('Pass active',
+    '<h1>You are in</h1>' +
+    '<p>Your ' + claimed.days + '-day pass is active until ' + esc(until) + '. This device is signed in.</p>' +
+    (claimed.code ? '<div class="code">' + esc(claimed.code) + '</div>' : '') +
+    '<p class="note">' +
+    (record.email && validEmail(record.email)
+      ? 'We emailed this code to ' + esc(record.email) + '. '
+      : '') +
+    'Use it to sign in on another device at <a href="/login">/login</a>. ' +
+    'The code and the pass end together; nothing renews automatically.</p>' +
+    '<p class="note"><a href="/">Open TIKOTrade</a></p>',
+    200, { 'set-cookie': cookieHeader(await issue(remaining, 'code'), remaining) });
 }
 
 function codeText(code, origin) {
@@ -574,7 +970,9 @@ function requestPage(url) {
       '<input id="company" name="company" tabindex="-1" autocomplete="off"></div>' +
       '<button type="submit">Send request</button>' +
     '</form>' +
-    '<p class="note">Already have a code? <a href="/login">Sign in</a>.</p>');
+    '<p class="note">Already have a code? <a href="/login">Sign in</a>.' +
+    (paymentsSellable() ? ' Prefer instant access? <a href="/buy">Buy a pass</a>.' : '') +
+    '</p>');
 }
 
 async function requestSubmit(req, url) {
@@ -868,9 +1266,16 @@ const GATE_CSS =
   '.facts b{color:#8b95a7;font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase;display:block}' +
   '.code{margin-top:16px;padding:16px;border-radius:12px;background:#0c0f18;border:1px dashed rgba(86,112,255,.5);' +
   'font:600 20px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-align:center}' +
+  '.plan{margin-top:16px;padding:16px 16px 6px;border-radius:14px;background:rgba(255,255,255,.04);' +
+  'border:1px solid rgba(255,255,255,.09)}' +
+  '.plan b{display:block;font-size:15px;color:#eef1f7}' +
+  '.plan span{display:block;margin-top:2px;font-size:12px;color:#98a1b0}' +
+  '.price{margin-top:4px;font-size:26px;font-weight:650;letter-spacing:-.03em;color:#eef1f7}' +
   '@media (max-width:420px){.gate{padding:24px 20px 20px}}';
 
-function gateResponse(title, inner, status) {
+const GATE_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+function gateResponse(title, inner, status, extraHeaders) {
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow">' +
@@ -881,14 +1286,14 @@ function gateResponse(title, inner, status) {
     '</body></html>';
   return new Response(html, {
     status: status || 200,
-    headers: {
+    headers: Object.assign({
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      'content-security-policy': GATE_CSP,
       'x-frame-options': 'DENY',
       'x-robots-tag': 'noindex, nofollow',
       'referrer-policy': 'no-referrer'
-    }
+    }, extraHeaders || {})
   });
 }
 
@@ -904,8 +1309,10 @@ function loginPage(url) {
   const next = safeNext(url.searchParams.get('next'));
   const error = errorText(url.searchParams.get('error'));
   const invite = requestsEnabled()
-    ? 'Need access? <a href="/request">Request an invitation</a>. Access codes arrive by email after the owner approves.'
-    : 'The owner signs in with a password. Members need an access code from the owner.';
+    ? 'Need access? <a href="/request">Request an invitation</a> or <a href="/buy">buy a pass</a>.'
+    : (paymentsSellable()
+      ? 'The owner signs in with a password. Members can <a href="/buy">buy an access pass</a> or use a code from the owner.'
+      : 'The owner signs in with a password. Members need an access code from the owner.');
   return gateResponse('Sign in',
     '<h1>Private access</h1>' +
     '<p>This build opens only for people the owner has let in.</p>' +

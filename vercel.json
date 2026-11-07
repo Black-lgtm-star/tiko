@@ -27,8 +27,13 @@
       "mitigate": { "action": "deny" }
     },
     {
-      "src": "^/(?:request|admin/review)/?$",
+      "src": "^/(?:request|buy|purchase/success|admin/review)/?$",
       "methods": ["PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/(?:checkout|stripe-webhook)$",
+      "methods": ["GET", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT", "HEAD"],
       "mitigate": { "action": "deny" }
     },
     {
