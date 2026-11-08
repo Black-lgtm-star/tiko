@@ -1054,12 +1054,24 @@
     if (!panel || !btn) return;
 
     var sizeTimer = null;
+    var fitObserver = null;
+    var lastFit = '';
 
     function freshUid() {
       return 'g' + Math.random().toString(36).slice(2, 8);
     }
     function renderChart(w, h) {
-      if (wrap) wrap.innerHTML = TA.charts.price(chartModel(a, freshUid(), w, h));
+      if (!wrap) return;
+      wrap.innerHTML = TA.charts.price(chartModel(a, freshUid(), w, h));
+      lastFit = w > 0 && h > 0 ? w + 'x' + h : '';
+    }
+    function fitChart() {
+      if (!wrap) return;
+      var w = Math.round(wrap.clientWidth);
+      var h = Math.round(wrap.clientHeight);
+      if (!(w > 0 && h > 0)) return;
+      if (w + 'x' + h === lastFit) return;
+      renderChart(w, h);
     }
     function scheduleSize(tries) {
       if (sizeTimer) clearTimeout(sizeTimer);
@@ -1074,7 +1086,7 @@
     }
     function restoreChart() {
       if (sizeTimer) { clearTimeout(sizeTimer); sizeTimer = null; }
-      renderChart();
+      fitChart();
     }
 
     function nativeEl() {
@@ -1157,6 +1169,7 @@
     }
     function onResize() {
       if (isOpen()) scheduleSize(0);
+      else fitChart();
     }
 
     btn.addEventListener('click', function () {
@@ -1167,13 +1180,19 @@
     document.addEventListener('webkitfullscreenchange', onChange);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
+    if (typeof ResizeObserver === 'function' && wrap) {
+      fitObserver = new ResizeObserver(onResize);
+      fitObserver.observe(wrap);
+    }
     paint();
+    fitChart();
 
     chartFsStop = function () {
       document.removeEventListener('fullscreenchange', onChange);
       document.removeEventListener('webkitfullscreenchange', onChange);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onResize);
+      if (fitObserver) { fitObserver.disconnect(); fitObserver = null; }
       if (sizeTimer) { clearTimeout(sizeTimer); sizeTimer = null; }
       if (nativeEl() === panel) {
         var exit = document.exitFullscreen || document.webkitExitFullscreen;
