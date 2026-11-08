@@ -86,7 +86,7 @@ Edge Function that runs before any file is read:
 - Eight wrong passwords or codes from one IP in ten minutes lock that IP out for the rest of the window.
 - `/login` and `/request` are the only public form pages, with a `default-src 'none'` policy, and
   every response carries `X-Robots-Tag: noindex, nofollow`. `/buy` and `/purchase/success` are also
-  public, and `/admin` and `/admin/review` are owner-only.
+  public, and `/admin`, `/admin/password` and `/admin/review` are owner-only.
 - Staging can delegate sign-in to Vercel. When `VERCEL_ENV` is `preview` and `TIKO_PREVIEW_OPEN` is
   `1`, requests that already passed Vercel Authentication are treated as the owner, so every device
   signed into the owner's Vercel account opens the app without a second password. Keep Deployment
@@ -110,6 +110,27 @@ to an owner session; it opens `/admin`, which mints codes on the spot:
 - `/admin` requires an owner session: members get `403`, guests are sent to `/login`, legacy
   sessions must sign in again, and submissions must be same-origin. A missing signing key shows an
   error instead of issuing a weak code.
+
+## Changing the owner password
+
+`/admin` links to **Change owner password** (`/admin/password`). The form asks for the current
+password and the new one twice, then stores a PBKDF2-SHA-256 hash (120,000 iterations, random
+16-byte salt, random key id) in Redis under `tiko:owner:pass`. The plaintext is never stored,
+logged, emailed or rendered; the response only confirms the change.
+
+- New passwords need 12–200 characters and must differ from the current one. Six wrong current
+  passwords from one IP lock rotation for 15 minutes.
+- The password version (`kid`) is signed into owner cookies. After a rotation, older owner cookies
+  can still read app pages until they expire, but `/admin` and `/admin/password` answer
+  `403 Sign in again`; this browser receives a fresh cookie immediately. Review links carry their
+  own signature and keep working until they expire or `TIKO_OWNER_KEY` rotates.
+- `TIKO_ACCESS_PASSWORD` remains the bootstrap: with no `tiko:owner:pass` record, the env password
+  signs in. Deleting that key in Redis (or wiping KV) restores the bootstrap and invalidates rotated
+  cookies.
+- If KV is configured but unreachable, owner sign-in and owner pages fail closed rather than fall
+  back to the bootstrap password.
+- Rotation needs KV; without it the page reports that storage is required and the env password
+  keeps working.
 
 ## Access requests
 
@@ -158,15 +179,16 @@ the matching `tiko:code:<hash>` to end it early. If Resend is not configured, th
 once on the success page.
 
 A pass and any code it mints are member-level: they open the app but get `403 Owner only` from
-`/admin`, cannot mint codes, and map to `{ "role": "member" }` at `/api/session`. `TIKO_ACCESS_PASSWORD`
-and `TIKO_OWNER_KEY` stay in Vercel's environment and are never rendered, emailed, logged or stored
-in Redis; rotating either one ends the surfaces that depend on it and nothing else.
+`/admin`, cannot mint codes, and map to `{ "role": "member" }` at `/api/session`. The owner password
+and `TIKO_OWNER_KEY` are never rendered, emailed or logged; a rotated owner password is kept only as
+a salted PBKDF2 hash in Redis, and rotating `TIKO_OWNER_KEY` invalidates every signed code and
+review link.
 
 ### Gate environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `TIKO_ACCESS_PASSWORD` | Owner password, entered at `/login` |
+| `TIKO_ACCESS_PASSWORD` | Owner bootstrap password, entered at `/login`; rotate it in-app at `/admin/password` |
 | `TIKO_SESSION_SECRET` | Signs the `tiko_access` session cookie |
 | `TIKO_OWNER_KEY` | Signs member codes and review links (rotate to invalidate all of them) |
 | `TIKO_PREVIEW_OPEN` | Set to `1` on Preview only: trust Vercel Authentication as the owner (requires Deployment Protection) |
@@ -188,8 +210,9 @@ KV-issued codes are stored as SHA-256 hashes; the plaintext code is shown on the
 day only. Signed codes from `/admin` need neither service.
 Resend can email the owner without a verified domain, but emailing arbitrary requesters needs one.
 
-To change the owner password, update `TIKO_ACCESS_PASSWORD` in Vercel and redeploy; existing cookies
-stay valid until they expire. Rotating `TIKO_SESSION_SECRET` signs everyone out.
+To change the owner password, sign in as the owner and open `/admin/password`; no Vercel edit or
+redeploy is needed. The bootstrap `TIKO_ACCESS_PASSWORD` still works when no rotated hash exists.
+Rotating `TIKO_SESSION_SECRET` signs everyone out.
 
 ## No ads, no third-party scripts
 
@@ -216,7 +239,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/purchases.test.js tests/tradeplan.test.js tests/bot.test.js tests/broker.test.js tests/session.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/broker.test.js tests/recommend.test.js tests/sides.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -251,8 +274,12 @@ tampered review links, sender failures, throttling and the disabled configuratio
 Redis and Resend replaced by in-memory fakes. The owner-code suite covers the owner-only generator,
 guest redirects, member and legacy-session refusals, code shape and expiry, member login and reuse,
 offline issuing without KV or mail, tampered, expired and foreign-key codes, rotation, duration and
-origin validation, and the missing-key path (9 tests). The broker-reference suite checks EN/ES copy
-parity,
+origin validation, and the missing-key path (9 tests). The owner-password suite covers the
+owner-only form and its link from `/admin`, PBKDF2 storage with no plaintext, rotation and the
+fresh cookie, refusal of the old password and of stale owner cookies, wrong-current, short, mismatched
+and unchanged values, per-IP throttling, failing closed when KV is down, restoring the bootstrap
+password by deleting the hash, and keeping passwords out of every response (7 tests). The
+broker-reference suite checks EN/ES copy parity,
 that every broker key resolves, the six-region and 20-question scope, the official-register list,
 local checklist persistence and reset, and a full render smoke test (5 tests). The theme suite
 covers the dark default, preference normalization, system resolution against the device setting,
@@ -275,7 +302,7 @@ signature, timestamp and secret checks, paid-pass storage and emailed codes, red
 idempotency, unpaid and unrelated events, success-page verification, auto sign-in with a
 pass-length cookie, invalid and unpaid claims, replay after expiry, late claims that never extend a
 pass, member-only access with no route to owner surfaces, owner secrets absent from every page and
-email, and the closed state without Stripe (13 tests). All seventeen suites total 206 tests.
+email, and the closed state without Stripe (13 tests). All eighteen suites total 213 tests.
 
 ## What is in the MVP
 

@@ -27,7 +27,7 @@
       "mitigate": { "action": "deny" }
     },
     {
-      "src": "^/(?:request|buy|purchase/success|admin/review)/?$",
+      "src": "^/(?:request|buy|purchase/success|admin(?:/review|/password)?)/?$",
       "methods": ["PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
       "mitigate": { "action": "deny" }
     },

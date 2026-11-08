@@ -25,10 +25,17 @@ const CHECKOUT_WINDOW = 60 * 60 * 1000;
 const MAX_CHECKOUTS = 8;
 const STRIPE_TOLERANCE = 300;
 const PASS_TTL = 60 * 60 * 24 * 90;
+const OWNER_HASH_KEY = 'tiko:owner:pass';
+const OWNER_ITERATIONS = 120000;
+const OWNER_PASSWORD_MIN = 12;
+const OWNER_PASSWORD_MAX = 200;
+const OWNER_ROTATE_WINDOW = 15 * 60 * 1000;
+const MAX_OWNER_ROTATES = 6;
 const encoder = new TextEncoder();
 const fails = new Map();
 const requestHits = new Map();
 const checkoutHits = new Map();
+const ownerTries = new Map();
 
 export const config = { matcher: '/:path*' };
 
@@ -79,6 +86,11 @@ export default async function middleware(req) {
   if (path === '/admin/review' || path === '/admin/review/') {
     if (req.method === 'POST') return reviewSubmit(req, url);
     return reviewPage(url);
+  }
+
+  if (path === '/admin/password' || path === '/admin/password/') {
+    if (req.method === 'POST') return ownerPasswordSubmit(req, url);
+    return ownerPasswordPage(req, url);
   }
 
   if (path === '/admin' || path === '/admin/') {
@@ -162,9 +174,12 @@ function readCookie(req) {
   return null;
 }
 
-async function issue(maxAge, role) {
+async function issue(maxAge, role, kid) {
   const exp = Math.floor(Date.now() / 1000) + (maxAge || MAX_AGE);
-  const payload = 'v1.' + (role === 'owner' ? 'owner' : 'code') + '.' + exp;
+  const kind = role === 'owner' ? 'owner' : 'code';
+  const payload = kid
+    ? 'v1.' + kind + '.' + kid + '.' + exp
+    : 'v1.' + kind + '.' + exp;
   return payload + '.' + b64url(await hmac(payload));
 }
 
@@ -174,26 +189,90 @@ async function readSession(req) {
   const token = readCookie(req);
   if (!token) return null;
   const parts = token.split('.');
-  if (parts[0] !== 'v1' || (parts.length !== 3 && parts.length !== 4)) return null;
-  const role = parts.length === 4 ? (parts[1] === 'owner' ? 'owner' : 'code') : '';
-  const exp = Number(parts.length === 4 ? parts[2] : parts[1]);
+  if (parts[0] !== 'v1' || (parts.length !== 3 && parts.length !== 4 && parts.length !== 5)) return null;
+  let role = '';
+  let kid = '';
+  let exp = 0;
+  if (parts.length === 5) {
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(parts[2])) return null;
+    role = parts[1] === 'owner' ? 'owner' : 'code';
+    kid = parts[2];
+    exp = Number(parts[3]);
+  } else if (parts.length === 4) {
+    role = parts[1] === 'owner' ? 'owner' : 'code';
+    exp = Number(parts[2]);
+  } else {
+    exp = Number(parts[1]);
+  }
   if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null;
   const sent = fromB64url(parts[parts.length - 1]);
   if (!sent) return null;
   if (!sameBytes(sent, await hmac(parts.slice(0, -1).join('.')))) return null;
-  return { exp: exp, role: role };
+  return { exp: exp, role: role, kid: kid };
 }
 
 async function authorized(req) {
   return Boolean(await readSession(req));
 }
 
-async function passwordMatches(input) {
-  const expected = process.env.TIKO_ACCESS_PASSWORD;
-  if (!expected) return false;
-  const a = await digest(String(input));
-  const b = await digest(expected);
-  return sameBytes(a, b);
+async function derivePassword(password, salt, iterations) {
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: salt, iterations: iterations, hash: 'SHA-256' }, key, 256
+  );
+  return new Uint8Array(bits);
+}
+
+/* The env password is the bootstrap; a rotated password lives in KV as a salted hash. */
+async function ownerHashState() {
+  if (!codesEnabled()) return { state: 'off' };
+  try {
+    const raw = await kvCommand(['GET', OWNER_HASH_KEY]);
+    if (typeof raw !== 'string') return { state: 'none' };
+    const record = JSON.parse(raw);
+    if (!record || record.v !== 1 || typeof record.salt !== 'string' || typeof record.hash !== 'string') {
+      return { state: 'invalid' };
+    }
+    return { state: 'set', record: record };
+  } catch (err) {
+    return { state: 'error' };
+  }
+}
+
+async function verifyOwnerPassword(input) {
+  const raw = String(input == null ? '' : input);
+  if (!raw || raw.length > OWNER_PASSWORD_MAX) return { ok: false, kid: '' };
+  const stored = await ownerHashState();
+  if (stored.state === 'off' || stored.state === 'none') {
+    const expected = process.env.TIKO_ACCESS_PASSWORD;
+    if (!expected) return { ok: false, kid: '' };
+    const a = await digest(raw);
+    const b = await digest(expected);
+    return { ok: sameBytes(a, b), kid: '' };
+  }
+  if (stored.state !== 'set') return { ok: false, kid: '' };
+  const salt = fromB64url(stored.record.salt);
+  const expected = fromB64url(stored.record.hash);
+  const iterations = Number(stored.record.iter);
+  if (!salt || !expected || !Number.isFinite(iterations)) return { ok: false, kid: '' };
+  if (iterations < 50000 || iterations > 600000) return { ok: false, kid: '' };
+  const ok = sameBytes(await derivePassword(raw, salt, iterations), expected);
+  return { ok: ok, kid: typeof stored.record.kid === 'string' ? stored.record.kid : '' };
+}
+
+function ownerTryLocked(ip) {
+  const entry = ownerTries.get(ip);
+  return Boolean(entry) && Date.now() - entry.start < OWNER_ROTATE_WINDOW && entry.count >= MAX_OWNER_ROTATES;
+}
+
+function recordOwnerTry(ip) {
+  const now = Date.now();
+  const entry = ownerTries.get(ip);
+  if (!entry || now - entry.start >= OWNER_ROTATE_WINDOW) ownerTries.set(ip, { count: 1, start: now });
+  else entry.count += 1;
+  if (ownerTries.size > 500) ownerTries.clear();
 }
 
 function clientIp(req) {
@@ -229,7 +308,8 @@ async function login(req, url) {
   const ip = clientIp(req);
   if (lockedOut(ip)) return redirect(url, '/login?error=locked&next=' + encodeURIComponent(next));
   const input = form.get('password');
-  let kind = (await passwordMatches(input)) ? 'owner' : '';
+  const owner = await verifyOwnerPassword(input);
+  let kind = owner.ok ? 'owner' : '';
   if (!kind) {
     try {
       if (await codeMatches(input)) kind = 'code';
@@ -246,7 +326,7 @@ async function login(req, url) {
     status: 303,
     headers: {
       location: new URL(next, url).toString(),
-      'set-cookie': cookieHeader(await issue(kind === 'owner' ? MAX_AGE : CODE_SESSION, kind)),
+      'set-cookie': cookieHeader(await issue(kind === 'owner' ? MAX_AGE : CODE_SESSION, kind, owner.kid)),
       'cache-control': 'no-store'
     }
   });
@@ -1180,7 +1260,7 @@ function adminCodesForm(error) {
       '<button type="submit">Generate code</button>' +
     '</form>' +
     '<p class="note">Codes can be reused until they expire. Rotating TIKO_OWNER_KEY invalidates every code, along with every review link. ' +
-    '<a href="/">Back to TIKOTrade</a> · <a href="/logout">Sign out</a></p>';
+    '<a href="/admin/password">Change owner password</a> · <a href="/">Back to TIKOTrade</a> · <a href="/logout">Sign out</a></p>';
 }
 
 function adminCodeResult(made, days) {
@@ -1192,17 +1272,142 @@ function adminCodeResult(made, days) {
     '<p class="note"><a href="/admin">Generate another</a> · <a href="/">Back to TIKOTrade</a></p>';
 }
 
-async function adminCodesPage(req, url) {
+/* Owner-only surfaces also reject sessions issued before the latest password change. */
+async function requireOwner(req, url, title, next, refreshLegacy) {
   const session = await readSession(req);
-  if (!session) return redirect(url, '/login?next=' + encodeURIComponent('/admin'));
+  if (!session) return { response: redirect(url, '/login?next=' + encodeURIComponent(next)) };
+  if (previewOpen()) return { response: null, session: session };
   if (session.role !== 'owner') {
-    return gateResponse('Member codes',
-      session.role
-        ? '<h1>Owner only</h1><p>Member codes are generated by the owner.</p>' +
+    return { response: gateResponse(title,
+      session.role || !refreshLegacy
+        ? '<h1>Owner only</h1><p>This area is for the owner.</p>' +
           '<p class="note"><a href="/">Back to TIKOTrade</a></p>'
         : '<h1>Refresh your session</h1><p>This session was issued before owner roles existed. ' +
-          'Sign out and back in to manage member codes.</p><p class="note"><a href="/logout">Sign out</a></p>', 403);
+          'Sign out and back in to manage owner settings.</p><p class="note"><a href="/logout">Sign out</a></p>', 403) };
   }
+  const stored = await ownerHashState();
+  if (stored.state === 'error' || stored.state === 'invalid') {
+    return { response: gateResponse(title,
+      '<h1>Temporarily unavailable</h1><p>Could not verify this owner session. Try again in a minute.</p>', 503) };
+  }
+  const current = stored.state === 'set' ? String(stored.record.kid || '') : '';
+  if (String(session.kid || '') !== current) {
+    return { response: gateResponse(title,
+      '<h1>Sign in again</h1><p>This owner session ended when the owner password changed.</p>' +
+      '<p class="note"><a href="/logout">Sign in</a></p>', 403) };
+  }
+  return { response: null, session: session };
+}
+
+function ownerPasswordForm(error) {
+  return '<h1>Owner password</h1>' +
+    '<p>Change the password you use at <a href="/login">/login</a>. Only a salted hash is stored; the password itself is never kept or shown.</p>' +
+    (error ? '<div class="error" role="alert">' + esc(error) + '</div>' : '') +
+    '<form method="post" action="/admin/password">' +
+      '<label for="current">Current password</label>' +
+      '<input id="current" name="current" type="password" autocomplete="current-password" required spellcheck="false">' +
+      '<label for="next">New password</label>' +
+      '<input id="next" name="password" type="password" autocomplete="new-password" minlength="' + OWNER_PASSWORD_MIN + '" maxlength="' + OWNER_PASSWORD_MAX + '" required spellcheck="false">' +
+      '<label for="confirm">Repeat new password</label>' +
+      '<input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="' + OWNER_PASSWORD_MIN + '" maxlength="' + OWNER_PASSWORD_MAX + '" required spellcheck="false">' +
+      '<button type="submit">Change password</button>' +
+    '</form>' +
+    '<p class="note">At least ' + OWNER_PASSWORD_MIN + ' characters. Other owner sessions end when you change it. ' +
+    '<a href="/admin">Back to member codes</a> · <a href="/logout">Sign out</a></p>';
+}
+
+async function ownerPasswordPage(req, url) {
+  const owner = await requireOwner(req, url, 'Owner password', '/admin/password', true);
+  if (owner.response) return owner.response;
+  if (!codesEnabled()) {
+    return gateResponse('Owner password',
+      '<h1>Storage required</h1><p>Connect Vercel KV or Upstash so the password can be stored as a salted hash. ' +
+      'Until then, keep using TIKO_ACCESS_PASSWORD.</p>' +
+      '<p class="note"><a href="/admin">Back to member codes</a></p>', 503);
+  }
+  if (url.searchParams.get('state') === 'changed') {
+    return gateResponse('Owner password',
+      '<h1>Password changed</h1>' +
+      '<p>Use the new password the next time you sign in. It will not be shown or emailed.</p>' +
+      '<p>This browser stays signed in. Other owner sessions end the next time they open an owner page.</p>' +
+      '<p class="note"><a href="/admin">Member codes</a> · <a href="/">Back to TIKOTrade</a></p>');
+  }
+  return gateResponse('Owner password', ownerPasswordForm(''));
+}
+
+async function ownerPasswordSubmit(req, url) {
+  const owner = await requireOwner(req, url, 'Owner password', '/admin/password', false);
+  if (owner.response) return owner.response;
+  if (!codesEnabled()) {
+    return gateResponse('Owner password',
+      '<h1>Storage required</h1><p>Connect Vercel KV or Upstash before changing the owner password.</p>', 503);
+  }
+  if (!sameOrigin(req, url)) {
+    return gateResponse('Owner password',
+      '<h1>Blocked</h1><p>That request did not come from this site.</p>', 403);
+  }
+  const ip = clientIp(req);
+  if (ownerTryLocked(ip)) {
+    return gateResponse('Owner password',
+      ownerPasswordForm('Too many attempts. Wait a few minutes and try again.'), 429);
+  }
+  const form = await req.formData();
+  const current = String(form.get('current') || '');
+  const next = String(form.get('password') || '');
+  const confirm = String(form.get('confirm') || '');
+
+  if (!(await verifyOwnerPassword(current)).ok) {
+    recordOwnerTry(ip);
+    return gateResponse('Owner password',
+      ownerPasswordForm('The current password is not correct.'), 400);
+  }
+  if (next.length < OWNER_PASSWORD_MIN || next.length > OWNER_PASSWORD_MAX) {
+    return gateResponse('Owner password',
+      ownerPasswordForm('Use at least ' + OWNER_PASSWORD_MIN + ' and at most ' + OWNER_PASSWORD_MAX + ' characters.'), 400);
+  }
+  if (next !== confirm) {
+    return gateResponse('Owner password',
+      ownerPasswordForm('The new passwords do not match.'), 400);
+  }
+  if (next === current) {
+    return gateResponse('Owner password',
+      ownerPasswordForm('Choose a password different from the current one.'), 400);
+  }
+
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const hash = await derivePassword(next, salt, OWNER_ITERATIONS);
+  const kidBytes = new Uint8Array(9);
+  crypto.getRandomValues(kidBytes);
+  const record = {
+    v: 1,
+    alg: 'pbkdf2-sha256',
+    iter: OWNER_ITERATIONS,
+    salt: b64url(salt),
+    hash: b64url(hash),
+    kid: b64url(kidBytes),
+    at: new Date().toISOString()
+  };
+  try {
+    await kvCommand(['SET', OWNER_HASH_KEY, JSON.stringify(record)]);
+  } catch (err) {
+    return gateResponse('Owner password',
+      ownerPasswordForm('The new password could not be saved. Try again in a minute.'), 503);
+  }
+  ownerTries.delete(ip);
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: new URL('/admin/password?state=changed', url).toString(),
+      'set-cookie': cookieHeader(await issue(MAX_AGE, 'owner', record.kid)),
+      'cache-control': 'no-store'
+    }
+  });
+}
+
+async function adminCodesPage(req, url) {
+  const owner = await requireOwner(req, url, 'Member codes', '/admin', true);
+  if (owner.response) return owner.response;
   if (!process.env.TIKO_OWNER_KEY) {
     return gateResponse('Member codes',
       '<h1>Signing key missing</h1><p>Add TIKO_OWNER_KEY in Vercel, then redeploy.</p>', 500);
@@ -1211,12 +1416,8 @@ async function adminCodesPage(req, url) {
 }
 
 async function adminCodesSubmit(req, url) {
-  const session = await readSession(req);
-  if (!session) return redirect(url, '/login?next=' + encodeURIComponent('/admin'));
-  if (session.role !== 'owner') {
-    return gateResponse('Member codes',
-      '<h1>Owner only</h1><p>Member codes are generated by the owner.</p>', 403);
-  }
+  const owner = await requireOwner(req, url, 'Member codes', '/admin', false);
+  if (owner.response) return owner.response;
   if (!process.env.TIKO_OWNER_KEY) {
     return gateResponse('Member codes',
       '<h1>Signing key missing</h1><p>Add TIKO_OWNER_KEY in Vercel, then redeploy.</p>', 500);
