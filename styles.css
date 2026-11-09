@@ -298,6 +298,7 @@ button { font-family: inherit; }
 }
 .badge-live { color: #9df3ff; border-color: rgba(41,224,255,.34); background: var(--cyan-dim); }
 .badge-sample { color: var(--warn); border-color: rgba(255,200,87,.32); background: var(--warn-dim); }
+.badge-offline { color: var(--warn); border-color: rgba(255,200,87,.32); background: var(--warn-dim); }
 .badge-neutral { color: var(--text-2); }
 .badge-bull { color: var(--bull); border-color: rgba(61,220,151,.3); background: var(--bull-dim); }
 .badge-bear { color: var(--bear); border-color: rgba(255,92,138,.3); background: var(--bear-dim); }
@@ -571,6 +572,18 @@ body.chart-fs-open { overflow: hidden; }
   margin-top: 14px;
 }
 .sample-banner svg { flex: none; margin-top: 1px; }
+
+.offline-note {
+  display: flex; align-items: flex-start; gap: 9px;
+  border: 1px solid rgba(255,200,87,.3); background: var(--warn-dim);
+  color: var(--text-2); border-radius: 12px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.45; margin: 10px 14px;
+}
+.offline-note > svg { flex: none; margin-top: 1px; color: var(--warn); }
+.offline-note b { color: var(--warn); }
+.offline-note p { margin: 4px 0 9px; }
+.offline-note-card { margin: 0; }
+.ideas-offline-note, .sides-offline-note { margin: 8px 2px 0; }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin-top: 26px; scrollbar-width: none; }
@@ -1248,6 +1261,43 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .broker-register svg { color: var(--muted-2); flex: none; }
 .broker-source-note { margin-top: 4px; }
 .broker-sources p + p { margin-top: 8px; }
+
+/* ---------------- Deriv Copy ---------------- */
+.deriv-card .card-body { display: grid; gap: 16px; }
+.deriv-connect { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(220px, 1.3fr); gap: 12px 16px; align-items: end; }
+.deriv-connect .deriv-actions { grid-column: 1 / -1; }
+.deriv-connect .field > span,
+.deriv-start-grid .field > span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 620; }
+.deriv-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.deriv-hint { margin: 0; line-height: 1.55; }
+.deriv-msg:empty { display: none; }
+.deriv-msg { padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); background: var(--bg-soft); font-size: 12.6px; color: var(--text-2); }
+.deriv-msg.is-ok { border-color: rgba(43, 214, 160, .35); color: var(--bull); }
+.deriv-msg.is-error { border-color: rgba(255, 92, 122, .4); color: var(--bear); }
+.deriv-account { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--bg-soft); }
+.deriv-account-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.deriv-account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.deriv-dot { width: 8px; height: 8px; flex: none; border-radius: 999px; background: var(--bull); box-shadow: 0 0 0 3px rgba(43, 214, 160, .18); }
+.deriv-scopes { display: flex; flex-wrap: wrap; gap: 5px; }
+.deriv-section { display: grid; gap: 10px; }
+.deriv-section .broker-subhead { margin-bottom: 0; }
+.deriv-start-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.deriv-start-grid .field:first-child { grid-column: 1 / -1; }
+.deriv-row-actions { text-align: right; white-space: nowrap; }
+.deriv-empty { text-align: center; color: var(--muted); padding: 18px 11px !important; }
+.deriv-warn { margin: 0; }
+.deriv-offline { display: grid; gap: 9px; padding: 14px 16px; border: 1px solid rgba(255, 92, 122, .35); border-radius: var(--radius-sm); background: rgba(255, 92, 122, .06); }
+.deriv-offline-head { display: flex; align-items: center; gap: 8px; color: var(--bear); }
+.deriv-offline-state { margin: 0; color: var(--muted); font-weight: 620; letter-spacing: .04em; }
+.derivapi-connect { grid-template-columns: minmax(120px, .8fr) minmax(200px, 1.2fr) minmax(150px, 1fr); }
+.deriv-readonly { display: flex; align-items: center; gap: 6px; margin: 0; }
+
+@media (max-width: 700px) {
+  .deriv-connect, .deriv-start-grid, .derivapi-connect { grid-template-columns: 1fr; }
+  .deriv-start-grid .field:first-child { grid-column: auto; }
+  .deriv-account { align-items: flex-start; }
+  .deriv-account-actions { width: 100%; }
+}
 
 @media (max-width: 960px) {
   .broker-start-grid { grid-template-columns: 1fr; }

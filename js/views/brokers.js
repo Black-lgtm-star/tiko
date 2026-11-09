@@ -549,11 +549,13 @@
 
   function render(root) {
     root.innerHTML = '<div class="wrap page">' + hero() + '<div class="dash-grid">' +
-      noticeCard() + startCard() + regionCard() + archetypeCard() +
+      noticeCard() + '<div class="span-12 deriv-slot" data-deriv-slot></div>' + startCard() +
+      regionCard() + archetypeCard() +
       regulationCard() + verifyCard() + compensationCard() + scorecardCard() +
       feesCard() + allInCard() + assetsCard() + taxCard() +
       checklistCard() + redFlagsCard() + trendsCard() + sourcesCard() + disclaimer() +
       '</div></div>';
+    if (TA.views.derivCopy) TA.views.derivCopy.mount(root.querySelector('[data-deriv-slot]'));
     bind(root);
   }
 

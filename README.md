@@ -29,16 +29,17 @@ python -m http.server 8000
 
 Then open `http://localhost:8000`.
 
-Live requests go to public APIs from your browser; stock quotes go through the same-origin
-`/api/quote` proxy so the browser security policy stays strict. If a request fails or is
-rate-limited, the app falls back to a clearly labeled synthetic sample and tells you why. The
-serverless routes need Vercel (or another Node serverless host); a plain static local server still
-runs the whole app but stock analysis falls back to sample data or an optional Alpha Vantage key.
+Stock quotes go through the same-origin `/api/quote` proxy and crypto through `/api/crypto`, so the
+browser security policy stays strict. FX rates go directly to Frankfurter. There is no synthetic
+fallback: when a live provider is offline, the affected view says so and shows no prices. The
+serverless routes need Vercel (or another Node serverless host); a plain static local server runs
+the UI but live stock and crypto data need the API routes or an optional Alpha Vantage key for
+stocks.
 
 ## Deploying at tiko.app
 
 The client is a static site configured for Vercel (`vercel.json`), with serverless routes for the
-stock directory (`api/stocks.js`) and stock quotes (`api/quote.js`). To publish it:
+stock directory (`api/stocks.js`), stock quotes (`api/quote.js`) and crypto (`api/crypto.js`). To publish it:
 
 1. Import this repository in Vercel as a static project. No framework, build command or output
    directory is needed — the repository root is served as-is.
@@ -214,6 +215,49 @@ To change the owner password, sign in as the owner and open `/admin/password`; n
 redeploy is needed. The bootstrap `TIKO_ACCESS_PASSWORD` still works when no rotated hash exists.
 Rotating `TIKO_SESSION_SECRET` signs everyone out.
 
+## Deriv
+
+The app has a dedicated **Deriv Copy** page (`#/deriv-copy`, also linked from the top nav and
+mounted at the bottom of the Brokers page) with two cards.
+
+### Account (current API)
+
+1. Create a personal access token in the Deriv dashboard and note your app ID. Enter the app ID, the
+   token and, optionally, an account ID such as `DOT90004580`.
+2. The card calls `https://api.derivws.com/trading/v1/options/accounts` with `Authorization: Bearer …`
+   and `Deriv-App-ID`, exchanges a one-time password through
+   `POST /trading/v1/options/accounts/{accountId}/otp`, and opens the returned
+   `wss://api.derivws.com/trading/v1/options/ws/…` socket to read the balance and open options
+   positions.
+3. With the account ID blank, the view uses the first active real account, falling back to the first
+   active account. The view is read-only: it cannot place, close or modify a trade.
+4. The app ID, token and account ID stay in this tab's `sessionStorage` only, are sent nowhere except
+   `api.derivws.com`, are never rendered back (only a masked token), and are erased when the tab
+   closes.
+
+### Copy trading (legacy endpoint)
+
+Deriv's copy-trading methods still live on the legacy `wss://ws.derivws.com/websockets/v3` endpoint.
+That host has been answering Cloudflare 520 for every path, so the card probes it when it opens,
+shows a provider-offline notice and disables the connect form until it answers again; **Check again**
+re-probes.
+
+1. Create a Deriv API token with the `admin` scope (list copies) and the `trade` scope (start or stop
+   a copy).
+2. Enter the app ID and token in the copy card. The app opens the legacy socket, authorizes, and keeps
+   both in this tab's `sessionStorage` only.
+3. **Refresh copies** lists active copies through `copytrading_list`. Starting a copy shows a
+   confirmation dialog with a masked trader token, the max/min stake and an acknowledgement box; the
+   send button stays disabled until it is checked. A max stake per trade is required, and the min
+   cannot exceed it. Stopping a copy uses the token returned by Deriv and asks for no confirmation.
+4. Tokens and the trader copy token are never rendered back, logged or stored in `localStorage`.
+   Both cards report Deriv errors as auth, account, scope, rate, URL, network, timeout or generic API
+   messages.
+
+Copy trading places real trades automatically. Positions already opened stay on the account when a
+copy is stopped. The CSP in `vercel.json` permits `https://api.derivws.com`, `wss://api.derivws.com`
+and `wss://ws.derivws.com` alongside the market-data and Alpaca hosts.
+
 ## No ads, no third-party scripts
 
 The app ships no ad slots, ad SDKs, trackers or third-party scripts, and the deployment enforces
@@ -221,12 +265,12 @@ that with a Content-Security-Policy (`vercel.json`):
 
 - `script-src 'self'` — only the app's own `js/*.js` files execute; injected ad or tracker scripts are refused.
 - `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
-- `connect-src` permits only the same-origin stock APIs (`/api/stocks`, `/api/quote`), the market data endpoints (`api.coingecko.com`, `www.alphavantage.co`, `api.frankfurter.dev`) and Alpaca's trading hosts (`api.alpaca.markets`, `paper-api.alpaca.markets`); Yahoo Finance is reached by the serverless proxy, never directly by the browser.
+- `connect-src` permits only the same-origin market APIs (`/api/stocks`, `/api/quote`, `/api/crypto`), Alpha Vantage (`www.alphavantage.co`) and Frankfurter (`api.frankfurter.dev`), Alpaca's trading hosts (`api.alpaca.markets`, `paper-api.alpaca.markets`) and Deriv's REST and WebSocket hosts (`https://api.derivws.com`, `wss://api.derivws.com`, `wss://ws.derivws.com`); CoinGecko and Yahoo Finance are reached by the serverless proxies, never directly by the browser.
 - Browser storage is local to the device. Watchlists, notes and settings use `localStorage`; the optional Alpha Vantage key uses `sessionStorage` and is cleared when the tab ends. Browser storage is not encrypted at rest.
 - No third-party search redirect: ticker lookup stays in the app through the catalog, Markets page and U.S. stock directory.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
 - HSTS, same-origin opener/resource policies and restrictive cross-domain policy headers add transport and origin isolation.
-- Fourteen Vercel WAF rules deny unsafe stock, quote, checkout and webhook methods, requests missing
+- Sixteen Vercel WAF rules deny unsafe stock, quote, crypto, checkout and webhook methods, requests missing
   their required parameters, oversized symbol lists, secret-file probes and common CMS probes;
   scanner-like API clients receive a challenge. Vercel's platform firewall also applies its managed
   DDoS mitigation automatically.
@@ -239,21 +283,21 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/brokers.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/broker.test.js tests/recommend.test.js tests/sides.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/crypto-proxy.test.js tests/brokers.test.js tests/deriv.test.js tests/deriv-api.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/broker.test.js tests/recommend.test.js tests/sides.test.js
 # or: npm test (when Node is on PATH)
 ```
 
-The action-plan suite covers the long/short state machine, directional copy, sample practice mode,
-determinism, stop buffers, exit-level suggestions, fixed-fractional sizing and account caps,
+The action-plan suite covers the long/short state machine, directional copy, non-live data locking
+the plan into practice mode, determinism, stop buffers, exit-level suggestions, fixed-fractional sizing and account caps,
 editable stop/take-profit overrides, validation errors, warnings, and EN/ES key coverage (25 tests).
 The copilot suite covers brief headlines for every plan state, EN/ES intent routing with synonym
 and typo tolerance, grounded answers for each topic (including stop-loss/take-profit suggestions for
 an active plan, a directional lean and a neutral read), a dedicated buy/sell answer that pairs the
-evidence score with the conditional plan, failing confirmation checks, extended and sample modes,
+evidence score with the conditional plan, failing confirmation checks, extended and non-live practice modes,
 both-sided exits for a neutral read, simplified versions of every topic triggered by plain-language
 requests, selected-side trade actions with and without
 a simulation, chart-image answers with and without a
-scan, answer caching, sample warnings, fallback scope, citations and follow-ups, determinism, and
+scan, answer caching, non-live data warnings, fallback scope, citations and follow-ups, determinism, and
 EN/ES key coverage (38 tests). The chart-reader suite covers plot detection, candle and line
 direction, support/resistance touches, flat and choppy trend reads, rejection of non-chart
 screenshots, and empty or too-small images against synthetic RGBA fixtures (8 tests). The overlay
@@ -264,10 +308,14 @@ market-alert suite covers weekday, weekend,
 holiday and early-close sessions, the Sunday-to-Friday forex week, DST boundaries, pre-close
 reminders, duplicate suppression, disabled groups, notification permission gating and EN/ES alert
 copy (12 tests). The quote-proxy suite covers response normalization, intraday session slicing,
-batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). The access
+batch quotes, cache reuse, input validation and safe upstream error codes (5 tests). The crypto-proxy
+suite covers the chart, markets and search shapes, response whitelisting and cache reuse, input
+validation and method rejection with no upstream call, safe upstream error mapping, and the
+server-only API key header (7 tests). The access
 suite covers password matching, session issue and verification, tampered, expired and malformed
-cookies, logout, redirect sanitizing, the fail-closed setup path, preview trust mode and the
-owner/member role returned by `/api/session`, including legacy cookies (13 tests). The access-request
+cookies, logout, redirect sanitizing, rejection of cross-origin and body-less login posts, the
+fail-closed setup path, preview trust mode and the
+owner/member role returned by `/api/session`, including legacy cookies (15 tests). The access-request
 suite covers request storage and owner email, the honeypot, email validation, deduplication,
 cross-origin posts, approval, denial, code email and code login, wrong, expired and revoked codes,
 tampered review links, sender failures, throttling and the disabled configuration (10 tests), with
@@ -302,7 +350,13 @@ signature, timestamp and secret checks, paid-pass storage and emailed codes, red
 idempotency, unpaid and unrelated events, success-page verification, auto sign-in with a
 pass-length cookie, invalid and unpaid claims, replay after expiry, late claims that never extend a
 pass, member-only access with no route to owner surfaces, owner secrets absent from every page and
-email, and the closed state without Stripe (13 tests). All eighteen suites total 213 tests.
+email, and the closed state without Stripe (13 tests). The Deriv suite covers config normalization,
+authorization, session-only storage and token masking, scope checks, copy listing, confirmation-
+gated start with stake caps, stop, disconnect, error mapping and the legacy endpoint probe, against a
+fake WebSocket (11 tests). The Deriv API suite covers config, token and account-ID validation, the
+accounts call and its headers, account selection, the OTP exchange, the socket URL allow-list, balance
+and position mapping, portfolio tolerance, refresh, disconnect, error mapping and token masking (10
+tests), with fetch, WebSocket and session storage injected. All twenty-one suites total 243 tests.
 
 ## What is in the MVP
 
@@ -367,11 +421,11 @@ email, and the closed state without Stripe (13 tests). All eighteen suites total
 - **Ideas page** — `#/ideas` ranks the supported U.S. stocks with the same analysis and plan rules
   used elsewhere. A fixed weighted score (directional evidence 30, trend 20, reward-to-risk 18,
   setup state 15, liquidity 8, volume 5, confirmation checks 4) is reduced by visible penalties for
-  sample data, extended or invalidated setups, high volatility, thin liquidity, low-confidence
-  evidence and stretched RSI. Each idea card shows its rank, score, tier, the top two evidence
+  extended or invalidated setups, high volatility, thin liquidity, low-confidence evidence and
+  stretched RSI. Each idea card shows its rank, score, tier, the top two evidence
   reasons, confirmation checks, plan levels and the main risk, and links to the full plan. The page
   caps the shortlist at six ideas and two per sector, marks which setups are executable under the
-  plan rules, labels sample data, and lists the weights on the page. The ranking is a transparent
+  plan rules, and lists the weights on the page. The ranking is a transparent
   review aid built from fixed rules — not a personalized recommendation, a rating service, a price
   forecast or a guarantee.
 - **Buy / Sell page** — `#/sides` shows, for every supported U.S. stock, what a long and a short
@@ -381,7 +435,7 @@ email, and the closed state without Stripe (13 tests). All eighteen suites total
   stop. The row header shows the quote, the change and the last-bar lean, and the panel that matches
   the lean is marked. Both panels are conditional reads produced by the same `tradeplan` rules the
   analysis page uses — a forced direction gets a transparent hypothetical scenario even when the
-  rule-based setup has no edge, and sample data is labelled and never sized. Rows are ordered by the
+  rule-based setup has no edge, and nothing is sized without a live read. Rows are ordered by the
   strength of the lean. Neither panel is a recommendation to trade either direction.
 - **Analysis page** — identical seven-section structure for every asset:
   1. Snapshot (price, timeframe, data timestamp)
@@ -441,29 +495,30 @@ email, and the closed state without Stripe (13 tests). All eighteen suites total
   panel shows whether each market is open or closed and when the next event is due. Alerts are
   scheduled on this device while TIKOTrade is open; browser notifications are optional and need
   permission. Crypto trades continuously, so it has no daily open or close.
-- **Settings** — profile chips, appearance (dark, light or system), default lens, language (English, Spanish, French, Brazilian Portuguese), data mode (`auto` / `sample`),
+- **Settings** — profile chips, appearance (dark, light or system), default lens, language (English, Spanish, French, Brazilian Portuguese), live-data status,
   sizing account and risk per trade, optional Alpha Vantage key, market alert groups, feedback export, and full local reset.
 - **Feedback and notes** — helpful / inaccurate / missing context, plus a free-text comment and a
   per-symbol note. Stored locally, exportable as JSON.
 
 ## Data sources and honesty rules
 
-| Market | Default source | Labeling |
+| Market | Source | Labeling |
 | --- | --- | --- |
-| Crypto | CoinGecko public API (`/coins/markets`, `/market_chart`) | `LIVE` with retrieval timestamp, or `SAMPLE` |
+| Crypto | CoinGecko through the same-origin `/api/crypto` proxy (no key) | `LIVE` with retrieval timestamp; no sample fallback |
 | Stocks | Yahoo Finance chart API through the same-origin `/api/quote` proxy (no key) | `LIVE` / delayed, retrieval and quote timestamps; 2 years of daily bars or 5-minute intraday bars |
 | Stocks (optional fallback) | Alpha Vantage (`TIME_SERIES_DAILY`, `GLOBAL_QUOTE`) with your own key | `LIVE` / `DELAYED`, end-of-day bars |
-| Stocks (offline) | Synthetic seeded series | `SAMPLE`, watermark and banner; exchange is the listing venue |
+| Any provider offline | No substitute series | The view says the live provider is offline and shows no price |
 | FX reference rates | Frankfurter (`/v2/rates`, `/v2/currencies`, `/v2/providers`) | Latest published daily reference rate, source and date; not real-time trading quotes |
 | U.S. stock listings | Nasdaq Trader symbol directories (`nasdaqlisted.txt`, `otherlisted.txt`) | Current Nasdaq, NYSE and NYSE Arca listings; directory names only, never prices |
 
-- Sample data is generated with a seeded geometric random walk so it is stable per session and asset.
-  It is explicitly labeled in the header, chart, banner and sources. It is never presented as a quote.
+- The app generates no prices. Synthetic series and the sample data mode were removed; a failed
+  provider surfaces as an explicit offline state in the dashboard, analysis, Ideas and Buy/Sell views.
 - Every number can be traced: the Sources section lists provider, API URL, retrieval time and series end.
 - News, sentiment, earnings and macro calendars are **not** connected. The UI says so in context,
   risks and sources instead of implying coverage.
-- Crypto series are fetched with a 14-second timeout, serialized requests, in-memory TTL caches
-  (45–90 seconds) and a single overview call to reduce rate-limit pressure.
+- Crypto and stock series use a 14-second timeout, serialized requests, in-memory TTL caches
+  (45–90 seconds for crypto, up to 3 minutes for daily stock bars) and a single overview call to
+  reduce rate-limit pressure.
 - Intraday availability depends on the provider. When a provider cannot supply intraday bars, the
   analysis reports the actual interval used rather than silently substituting it.
 - The dashboard stock directory searches the current official symbol listings through `/api/stocks`.
@@ -473,6 +528,11 @@ email, and the closed state without Stripe (13 tests). All eighteen suites total
   ten symbols per batch request, keeps a short in-memory cache and sets edge cache headers
   (30 seconds intraday, 120 seconds daily, 45 seconds for batches). It forwards no cookies or user
   identifiers, only the requested symbols. Yahoo Finance data is public and typically delayed.
+- The crypto proxy is GET-only and serves three shapes: `kind=chart` (price and volume series),
+  `kind=markets` (current rows, at most 25 ids) and `kind=search` (at most 20 matching coins).
+  It validates ids and day counts, keeps a short in-memory cache, and forwards no cookies or user
+  identifiers. Set `COINGECKO_API_KEY` (and `COINGECKO_API_TIER=pro` for a Pro key) on the server to
+  raise the upstream limit; the key is never sent to the browser.
 
 ### Optional Alpha Vantage fallback (stocks)
 
@@ -481,7 +541,7 @@ email, and the closed state without Stripe (13 tests). All eighteen suites total
 3. The key is kept in this tab's `sessionStorage` and is sent directly to Alpha Vantage only when the
    live quote proxy is unavailable. It is cleared when the tab session ends.
 4. FX reference rates use Frankfurter and need no API key.
-5. Any remaining market-data failure falls back to clearly labeled sample data where available.
+5. If every live source fails, no price is shown. The view reports that the live provider is offline.
 
 ## Design
 
@@ -519,8 +579,8 @@ js/store.js         settings, watchlist, recents, notes, feedback (localStorage)
 js/theme.js         dark/light/system preference, data-theme and theme-color
 js/market-notifications.js  exchange calendars, session state, local open/close alerts
 js/indicators.js    SMA, RSI(14), ATR, realized volatility, pivots, drawdown
-js/catalog.js       supported assets, search, sample-series parameters
-js/data.js          providers, caching, fallback, stock quote proxy, overview/quotes, FX rates
+js/catalog.js       supported assets, search, provider ids for live series
+js/data.js          live-only providers, caching, stock quote and crypto proxies, overview/quotes, FX rates
 js/analysis.js      rule-based engine: evidence, levels, scenarios, risks
 js/tradeplan.js     conditional action plan, state machine, position sizing
 js/bot.js           deterministic paper-trading loop, proposals, exits, persona and stats
@@ -537,7 +597,7 @@ js/app.js           shell, hash router, language refresh, appearance, boot
 ```
 
 Data flow: `views → data.getMarketData(asset, {timeframe}) → {asset, candles, quote, meta}`.
-`meta` carries `dataMode`, provider URLs, timestamps, interval, bar count and fallback reasons.
+`meta` carries `dataMode`, provider URLs, timestamps, interval, bar count and provenance.
 The analysis engine is deterministic: it computes indicators locally, scores evidence for and
 against, derives levels from structure, and generates scenarios and risks. `tradeplan.build` is a
 pure function of those facts plus an optional live price, so the same inputs always produce the same
@@ -583,7 +643,8 @@ correctly from recents or the watchlist.
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
 `gt.planlevels.v1`, `gt.brokerchecks.v1`, `gt.bot.v1`, and — in session storage only —
-`gt.broker.v1` and `gt.broker.autopilot.session.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+`gt.broker.v1`, `gt.broker.autopilot.session.v1`, `gt.deriv.session.v1` and
+`gt.deriv.api.session.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
 reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
 (`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
 shared profile and removed on first load.
@@ -601,26 +662,28 @@ only, is never serialized into the ledger or a reset export, and disappears when
 `gt.broker.v1` keys to be read, covers one long stock or ETF order per scan, and is removed by
 pause, disconnect, a mode change or leaving auto mode. The app holds no server-side copy.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
-Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes, which pass through TIKOTrade's same-origin `/api/quote` proxy to Yahoo Finance.
+Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes and crypto, which pass through TIKOTrade's same-origin `/api/quote` and `/api/crypto` proxies.
 
 ### Adding a market data provider
 
 1. Add an adapter in `js/data.js` that returns
    `{ asset, candles, quote, meta }`, with `meta.dataMode`, `provider`, `providerUrl`,
    `retrievedAt`, `seriesEnd`, `interval`, `timeframe`, `barCount`, `fallback`.
-2. Route it inside `getMarketData` based on `asset.assetClass` (or a new field), keeping the
-   sample fallback and its `fallbackReason`.
+2. Route it inside `getMarketData` based on `asset.assetClass` (or a new field). There is no
+   synthetic fallback: on failure, reject with an explicit offline, network, timeout, rate, HTTP or
+   empty error so the UI can say the live provider is offline.
 3. Add symbols and descriptors to `js/catalog.js`, including a stable id for external lookups.
 4. If the provider needs search for unknown tickers, extend `resolveSymbol`.
-5. Keep the honesty contract: label live vs. delayed vs. sample, expose timestamps, and update the
-   Sources section if the provider changes.
+5. Keep the honesty contract: label live vs. delayed vs. offline, expose timestamps, never
+   substitute stale or generated data, and update the Sources section if the provider changes.
 
 The Markets page (`#/markets`) searches the official Nasdaq Trader directories for Nasdaq, NYSE and
 NYSE Arca stocks, and loads current and legacy currency codes, latest rates, and source attribution
 from the public Frankfurter API. Rates can be filtered by provider. Frankfurter rates are daily
 reference rates, not intraday trading quotes; they require internet access but no API key. Stock
 directory entries are real listings; opening one loads live delayed daily or 5-minute bars from
-Yahoo Finance through `/api/quote`, with sample data only as the labeled offline fallback.
+Yahoo Finance through `/api/quote`. If that provider is offline, the page shows an offline message
+and no prices rather than substitute data.
 
 ### Adding a language
 
@@ -670,8 +733,8 @@ with the weights shown on the page so you can review them; the ranking is not a 
 price forecast or a personalized recommendation. The Buy / Sell page pairs a long and a short case
 for the same analysis so you can compare the levels; both cases are conditional reads of structure,
 not recommendations to take either side. The action plan is a conditional read of levels,
-trend and volume — not a forecast or an order. Data may be delayed, incomplete or — where
-labeled — synthetic. The optional Alpaca connection can send a real order to your account only after
+trend and volume — not a forecast or an order. Data may be delayed or incomplete; when a live
+provider is offline the app says so and shows no prices instead of synthetic data. The optional Alpaca connection can send a real order to your account only after
 you review and confirm it, or while a live autopilot grant you enabled from this tab remains active;
 that grant is session-only, limited to one long stock or ETF order per scan, and is revoked by
 pause, disconnect, a mode change or leaving auto mode. You are responsible for every order sent

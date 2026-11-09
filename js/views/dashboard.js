@@ -39,13 +39,13 @@
   }
 
   function stockDirectoryCard() {
-    var live = TA.store.settings().dataMode !== 'sample' && navigator.onLine !== false;
+    var online = navigator.onLine !== false;
     return '<section class="card stock-directory span-12 edge-cyan" aria-labelledby="stock-directory-title">' +
       '<div class="card-head stock-directory-head"><div><h2 id="stock-directory-title">' + U.esc(T('dash.stocks.title')) + '</h2>' +
       '<p class="tiny muted">' + U.esc(T('dash.stocks.lede')) + '</p></div>' +
-      (live
+      (online
         ? '<span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('dash.stocks.badge')) + '</span>'
-        : '<span class="badge badge-sample">' + U.esc(T('badge.sample')) + '</span>') + '</div>' +
+        : '<span class="badge badge-offline">' + U.esc(T('badge.offline')) + '</span>') + '</div>' +
       '<form class="stock-directory-form" data-stock-search role="search">' +
         '<input class="input" type="search" id="stock-directory-query" minlength="2" maxlength="80" autocomplete="off" ' +
           'placeholder="' + U.attr(T('dash.stocks.placeholder')) + '" aria-label="' + U.attr(T('dash.stocks.placeholder')) + '" required />' +
@@ -53,7 +53,7 @@
       '</form>' +
       '<div class="stock-directory-status tiny muted" data-stock-status aria-live="polite">' + U.esc(T('dash.stocks.hint')) + '</div>' +
       '<div class="stock-directory-results" data-stock-results></div>' +
-      '<p class="tiny muted stock-directory-foot">' + U.esc(T(live ? 'dash.stocks.note' : 'dash.stocks.note_sample')) + '</p>' +
+      '<p class="tiny muted stock-directory-foot">' + U.esc(T('dash.stocks.note')) + '</p>' +
     '</section>';
   }
 
@@ -110,10 +110,7 @@
       '<div class="card-head"><h2 id="watch-title">' + ui.icon('star', 14) + U.esc(T('dash.watchlist.title')) + '</h2>' +
         '<span class="hint" data-watch-count></span></div>' +
       '<div class="list" data-watch-list>' + skeletonRows(3) + '</div>' +
-      '<div class="card-foot tiny muted" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
-        '<span>' + U.esc(T('dash.watchlist.live')) + '</span>' +
-        '<span>' + U.esc(T('dash.watchlist.sample')) + '</span>' +
-      '</div></section>';
+      '<div class="card-foot tiny muted">' + U.esc(T('dash.watchlist.live')) + '</div></section>';
   }
 
   function overviewCard() {
@@ -369,7 +366,9 @@
         updateConvertedAmount();
       }).catch(function (error) {
         if (!document.body.contains(root)) return;
-        status.textContent = error && error.code === 'rate' ? T('dash.fx.limit') : T('dash.fx.error');
+        status.textContent = error && error.code === 'offline' ? T('dash.fx.offline')
+          : error && error.code === 'rate' ? T('dash.fx.limit')
+          : T('dash.fx.error');
       }).finally(function () { if (submit) submit.disabled = false; });
     });
     TA.data.getForexCurrencies().then(function (currencies) {
@@ -423,7 +422,7 @@
     });
   }
 
-  function paintWatchlist(root, quotes) {
+  function paintWatchlist(root, quotes, offline) {
     var list = root.querySelector('[data-watch-list]');
     if (!list) return;
     lastQuotes = quotes || lastQuotes;
@@ -438,7 +437,10 @@
       if (start) start.addEventListener('click', function () { openAsset(TA.catalog.find('BTC')); });
       return;
     }
-    list.innerHTML = entries.map(function (e) {
+    list.innerHTML = (offline
+      ? '<div class="offline-note" role="status">' + ui.icon('warning', 14) +
+        '<span><b>' + U.esc(T('offline.title')) + '.</b> ' + U.esc(T('offline.quotes')) + '</span></div>'
+      : '') + entries.map(function (e) {
       var a = assetFromEntry(e);
       var q = quotes[e.symbol] || {};
       var chg = U.isNum(q.changePct) ? q.changePct : null;
@@ -457,17 +459,23 @@
     }).join('');
   }
 
+  function paintOverviewOffline(root) {
+    var box = root.querySelector('[data-overview]');
+    if (!box) return;
+    box.innerHTML = '<div class="offline-note offline-note-card" role="status">' + ui.icon('warning', 16) +
+      '<div><b>' + U.esc(T('offline.title')) + '</b><p class="tiny muted">' + U.esc(T('offline.overview')) + '</p>' +
+      '<button class="btn btn-sm" type="button" data-overview-retry>' + U.esc(T('offline.retry')) + '</button></div></div>';
+  }
+
   function paintOverview(root, overview) {
     var box = root.querySelector('[data-overview]');
     if (!box) return;
-    var liveStocks = overview.stocks.filter(function (s) { return s.dataMode === 'live'; });
-    var pool = overview.live ? overview.crypto.concat(liveStocks) : overview.stocks;
-    var footKey = overview.crypto.length && liveStocks.length ? 'dash.overview.live_foot'
+    var pool = overview.crypto.concat(overview.stocks);
+    var footKey = overview.crypto.length && overview.stocks.length ? 'dash.overview.live_foot'
       : overview.crypto.length ? 'dash.overview.crypto_foot'
-      : liveStocks.length ? 'dash.overview.stocks_foot'
-      : 'dash.overview.sample_foot';
+      : 'dash.overview.stocks_foot';
     if (!pool.length) {
-      box.innerHTML = '<div class="empty">' + ui.icon('info', 18) + '<span>' + U.esc(T('dash.overview.unavailable')) + '</span></div>';
+      paintOverviewOffline(root);
       return;
     }
     var sorted = pool.slice().sort(function (a, b) { return b.changePct - a.changePct; });
@@ -490,15 +498,18 @@
       '</div>' +
       '<div class="card-foot tiny muted" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
         '<span>' + U.esc(T(footKey, { time: U.fmtTime(overview.retrievedAt, lang()) })) + '</span>' +
-        (overview.live ? ui.modeBadge({ dataMode: 'live' }) : ui.modeBadge({ dataMode: 'sample' })) +
+        ui.modeBadge({ dataMode: 'live' }) +
       '</div>';
 
-    box.addEventListener('click', function (e) {
-      var b = e.target.closest('[data-ov]');
-      if (!b) return;
-      var a = TA.catalog.find(b.getAttribute('data-ov'));
-      if (a) openAsset(a);
-    });
+    if (!box.__overviewBound) {
+      box.__overviewBound = true;
+      box.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-ov]');
+        if (!b) return;
+        var a = TA.catalog.find(b.getAttribute('data-ov'));
+        if (a) openAsset(a);
+      });
+    }
   }
 
   function render(root) {
@@ -537,6 +548,15 @@
         var a = recent ? assetFromEntry(recent) : TA.catalog.find(sym);
         if (a) TA.app.openAnalysis(a, { style: r.getAttribute('data-style') });
       }
+      var retry = e.target.closest('[data-overview-retry]');
+      if (retry) {
+        retry.disabled = true;
+        TA.data.getOverview().then(function (ov) {
+          if (document.body.contains(root)) paintOverview(root, ov);
+        }).catch(function () {
+          if (document.body.contains(root)) paintOverviewOffline(root);
+        });
+      }
     });
 
     var entries = TA.store.watchlist();
@@ -548,10 +568,16 @@
     overviewP.then(function (ov) {
       if (!document.body.contains(root)) return;
       paintOverview(root, ov);
+    }).catch(function () {
+      if (!document.body.contains(root)) return;
+      paintOverviewOffline(root);
     });
     quotesP.then(function (quotes) {
       if (!document.body.contains(root)) return;
-      paintWatchlist(root, quotes);
+      paintWatchlist(root, quotes, false);
+    }).catch(function () {
+      if (!document.body.contains(root)) return;
+      paintWatchlist(root, {}, true);
     });
   }
 

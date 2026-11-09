@@ -50,6 +50,16 @@
       "mitigate": { "action": "challenge" }
     },
     {
+      "src": "^/api/crypto$",
+      "methods": ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
+      "mitigate": { "action": "deny" }
+    },
+    {
+      "src": "^/api/crypto$",
+      "missing": [{ "type": "query", "key": "kind" }],
+      "mitigate": { "action": "deny" }
+    },
+    {
       "src": "^/api/quote$",
       "methods": ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
       "mitigate": { "action": "deny" }
@@ -95,7 +105,7 @@
         { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), display-capture=(self), picture-in-picture=(self), interest-cohort=()" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.coingecko.com https://www.alphavantage.co https://api.frankfurter.dev https://api.alpaca.markets https://paper-api.alpaca.markets; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://www.alphavantage.co https://api.frankfurter.dev https://api.alpaca.markets https://paper-api.alpaca.markets wss://ws.derivws.com https://api.derivws.com wss://api.derivws.com; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'"
         }
       ]
     }

@@ -1,13 +1,13 @@
-/* data.js — market data adapters.
-   live crypto: CoinGecko public API (no key)
+/* data.js — live market data adapters. No synthetic prices are generated.
+   live crypto: /api/crypto, a same-origin proxy for CoinGecko (no key)
    live stocks: /api/quote, a same-origin proxy for Yahoo Finance (no key)
                 Alpha Vantage remains an optional keyed fallback
-   otherwise:  deterministic synthetic series, always labeled "sample"   */
+   When a provider is offline the caller gets an error and the UI says so. */
 (function (TA) {
   'use strict';
   var U = TA.util;
   var C = TA.catalog;
-  var CG = 'https://api.coingecko.com/api/v3';
+  var CG = '/api/crypto';
   var AV = 'https://www.alphavantage.co/query';
   var FX = 'https://api.frankfurter.dev/v2';
   var QP = '/api/quote';
@@ -65,8 +65,7 @@
   var cgMarkets = function (ids, ttl) {
     var key = 'cg:mkts:' + ids.slice().sort().join(',');
     return cached(key, ttl || 60000, function () {
-      var url = CG + '/coins/markets?vs_currency=usd&ids=' + encodeURIComponent(ids.join(',')) +
-        '&price_change_percentage=24h,1h&sparkline=true';
+      var url = CG + '?kind=markets&ids=' + encodeURIComponent(ids.join(','));
       return fetchJSON(url);
     });
   };
@@ -78,8 +77,7 @@
     var days = timeframe === 'intraday' ? 1 : 180;
     var ttl = timeframe === 'intraday' ? 45000 : 90000;
     var chartP = cached('cg:chart:' + id + ':' + days, ttl, function () {
-      return fetchJSON(CG + '/coins/' + encodeURIComponent(id) +
-        '/market_chart?vs_currency=usd&days=' + days);
+      return fetchJSON(CG + '?kind=chart&id=' + encodeURIComponent(id) + '&days=' + days);
     });
     var mktsP = cgMarkets([id], ttl);
 
@@ -128,7 +126,7 @@
           dataMode: 'live',
           provider: 'coingecko',
           providerUrl: 'https://www.coingecko.com/en/coins/' + encodeURIComponent(id),
-          apiUrl: CG + '/coins/' + encodeURIComponent(id) + '/market_chart?vs_currency=usd&days=' + days,
+          apiUrl: CG + '?kind=chart&id=' + encodeURIComponent(id) + '&days=' + days,
           retrievedAt: retrievedAt,
           seriesEnd: candles[candles.length - 1].t,
           providerUpdatedAt: isFinite(updated) ? updated : null,
@@ -148,7 +146,7 @@
   function searchCrypto(query) {
     var q = String(query || '').trim();
     return cached('cg:search:' + q.toLowerCase(), 10 * 60 * 1000, function () {
-      return fetchJSON(CG + '/search?query=' + encodeURIComponent(q));
+      return fetchJSON(CG + '?kind=search&q=' + encodeURIComponent(q));
     }).then(function (res) {
       var coins = (res && res.coins) || [];
       var sym = U.normalizeSymbol(q);
@@ -444,186 +442,38 @@
     };
   }
 
-  /* ================= Sample generator ================= */
-  function lastSessionEnd() {
-    var d = new Date();
-    // Walk back to the most recent weekday close (16:00 New York ≈ 20:00 UTC).
-    for (var guard = 0; guard < 10; guard++) {
-      var day = d.getUTCDay();
-      var candidate = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 20, 0, 0);
-      if (day !== 0 && day !== 6 && candidate < Date.now() - 60 * 60 * 1000) return candidate;
-      d = new Date(d.getTime() - 86400000);
-    }
-    return Date.now() - 86400000;
-  }
-
-  function sampleParams(asset) {
-    var known = C.find(asset.symbol);
-    var src = known || asset;
-    return {
-      px: src.px || 120,
-      drift: src.drift == null ? 0.22 : src.drift,
-      vol: src.vol == null ? 0.62 : src.vol,
-      vol24: src.vol24 || 1e8,
-      shares: src.shares || null
-    };
-  }
-
-  function sampleDaily(asset, n) {
-    n = n || 420;
-    var p = sampleParams(asset);
-    var seed = U.hashStr(asset.symbol + '|' + n + '|' + new Date(lastSessionEnd()).toISOString().slice(0, 10));
-    var rng = U.mulberry32(seed);
-    var sigma = p.vol / Math.sqrt(252);
-    var mu = Math.log(1 + p.drift) / 252;
-    var end = lastSessionEnd();
-    var total = n;
-    var closes = [];
-    var price = p.px * Math.exp(-mu * total);
-    for (var i = 0; i < total; i++) {
-      var regime = 0.7 + 0.55 * Math.sin((i / total) * Math.PI * 2.4 + 0.7);
-      var shock = U.gauss(rng) * sigma * regime;
-      if (rng() < 0.02) shock += (rng() < 0.5 ? -1 : 1) * sigma * (2 + rng() * 3);
-      price = Math.max(0.0001, price * Math.exp(mu + shock));
-      closes.push(price);
-    }
-    // Anchor the final price reasonably close to the catalog's base price.
-    var scale = p.px / closes[closes.length - 1];
-    scale = 1 + (scale - 1) * 0.65;
-    var candles = [];
-    for (i = 0; i < total; i++) {
-      var close = closes[i] * (scale + (1 - scale) * (i / total));
-      var prevC = i ? candles[i - 1].c : close * 0.995;
-      var gap = U.gauss(rng) * sigma * 0.35;
-      var open = prevC * (1 + gap);
-      var bodyPct = Math.abs(close / open - 1);
-      var wick = (sigma * 0.7 + bodyPct * 0.5) * close;
-      var high = Math.max(open, close) + wick * rng() * 1.6;
-      var low = Math.min(open, close) - wick * rng() * 1.6;
-      var vol = p.vol24 * (0.55 + rng() * 0.8) * (1 + Math.abs(close / prevC - 1) * 22);
-      candles.push({
-        t: end - (total - 1 - i) * 86400000,
-        o: open, h: high, l: Math.max(0.0001, low), c: close, v: vol
-      });
-    }
-    return candles;
-  }
-
-  function sampleIntraday(asset) {
-    var p = sampleParams(asset);
-    var rng = U.mulberry32(U.hashStr(asset.symbol + '|intraday|' + new Date(lastSessionEnd()).toISOString().slice(0, 10)));
-    var end = lastSessionEnd();
-    var n = 78;
-    var start = end - (n - 1) * 5 * 60000;
-    var sigma = (p.vol / Math.sqrt(252)) / Math.sqrt(78);
-    // Anchor to the same daily series the other views use, so the snapshot
-    // price does not jump when you switch lenses.
-    var daily = sampleDaily(asset, asset.assetClass === 'crypto' ? 240 : 420);
-    var anchor = daily[daily.length - 1].c;
-    var price = anchor * (0.995 + rng() * 0.01);
-    var candles = [];
-    for (var i = 0; i < n; i++) {
-      var open = i ? candles[i - 1].c : price;
-      var drift = Math.sin((i / n) * Math.PI * 1.5) * sigma * 0.6;
-      var close = Math.max(0.0001, open * Math.exp(drift + U.gauss(rng) * sigma));
-      var wick = sigma * open * 0.8;
-      candles.push({
-        t: start + i * 5 * 60000,
-        o: open,
-        h: Math.max(open, close) + wick * rng(),
-        l: Math.max(0.0001, Math.min(open, close) - wick * rng()),
-        c: close,
-        v: p.vol24 / 78 * (0.5 + rng() * 1.2) * (1 + Math.abs(close / open - 1) * 30)
-      });
-    }
-    return candles;
-  }
-
-  function sampleData(asset, timeframe, info) {
-    var intraday = timeframe === 'intraday' && asset.assetClass === 'stock';
-    var candles = intraday ? sampleIntraday(asset) : sampleDaily(asset, asset.assetClass === 'crypto' ? 240 : 420);
-    var p = sampleParams(asset);
-    var last = candles[candles.length - 1];
-    var first = candles[0];
-    var dayCandles = intraday ? candles : candles.slice(-1);
-    var high = Math.max.apply(null, dayCandles.map(function (c) { return c.h; }));
-    var low = Math.min.apply(null, dayCandles.map(function (c) { return c.l; }));
-    var volume = U.sum(dayCandles.map(function (c) { return c.v; }));
-    var prevClose = intraday ? first.o : (candles.length > 1 ? candles[candles.length - 2].c : first.c);
-    var shares = p.shares;
-    var marketCap = shares ? last.c * shares : null;
-    var turnover = null;
-    if (marketCap) {
-      turnover = asset.assetClass === 'crypto'
-        ? (p.vol24 / marketCap) * 100
-        : shares ? (volume / shares) * 100 : null;
-    }
-
-    return Promise.resolve({
-      asset: Object.assign({}, asset, {
-        name: (C.find(asset.symbol) || asset).name || asset.name
-      }),
-      candles: candles,
-      quote: {
-        price: last.c,
-        prevClose: prevClose,
-        changePct: (last.c / prevClose - 1) * 100,
-        changeWindow: intraday ? '1d' : '1d',
-        dayHigh: high,
-        dayLow: low,
-        volume: volume,
-        marketCap: marketCap,
-        turnover: turnover,
-        rank: null
-      },
-      meta: {
-        dataMode: 'sample',
-        provider: 'sample',
-        providerUrl: null,
-        apiUrl: null,
-        retrievedAt: Date.now(),
-        seriesEnd: last.t,
-        interval: intraday ? 'intraday' : 'daily',
-        timeframe: timeframe,
-        barCount: candles.length,
-        fallback: !!(info && info.fallback),
-        fallbackReason: (info && info.reason) || null,
-        grainNote: intraday ? 'Synthetic 5-minute bars' : 'Synthetic daily bars',
-        delayNote: false,
-        sample: true
-      }
-    });
-  }
-
   /* ================= public API ================= */
+  function offlineError(message) {
+    return DataError('offline', message || 'The live data provider is offline');
+  }
+
+  function isOffline() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
   var api = {
     getMarketData: function (asset, opts) {
       opts = opts || {};
       var timeframe = opts.timeframe === 'intraday' ? 'intraday' : 'daily';
       var settings = TA.store.settings();
-      var canLive = settings.dataMode !== 'sample' && navigator.onLine !== false;
-      var fail = function (err) {
-        return sampleData(asset, timeframe, {
-          fallback: true,
-          reason: (err && err.code) || 'network'
-        });
-      };
+      if (isOffline()) return Promise.reject(offlineError('The device is offline'));
+      if (!asset || !asset.assetClass) return Promise.reject(DataError('unsupported', 'Unknown asset'));
 
-      if (asset.assetClass === 'crypto' && canLive) {
-        return liveCrypto(asset, timeframe).catch(fail);
+      if (asset.assetClass === 'crypto') {
+        if (!canUseProxy()) return Promise.reject(DataError('network', 'The live crypto provider is unreachable'));
+        return liveCrypto(asset, timeframe);
       }
-      if (asset.assetClass === 'stock' && canLive) {
+      if (asset.assetClass === 'stock') {
         if (canUseProxy()) {
-          return proxyChart(asset, timeframe)
-            .catch(function (proxyErr) {
-              if (!settings.avKey) throw proxyErr;
-              return liveStock(asset, timeframe, settings.avKey).catch(function () { throw proxyErr; });
-            })
-            .catch(fail);
+          return proxyChart(asset, timeframe).catch(function (proxyErr) {
+            if (!settings.avKey) throw proxyErr;
+            return liveStock(asset, timeframe, settings.avKey).catch(function () { throw proxyErr; });
+          });
         }
-        if (settings.avKey) return liveStock(asset, timeframe, settings.avKey).catch(fail);
+        if (settings.avKey) return liveStock(asset, timeframe, settings.avKey);
+        return Promise.reject(DataError('network', 'The live stock provider is unreachable'));
       }
-      return sampleData(asset, timeframe, {});
+      return Promise.reject(DataError('unsupported', 'No live provider for this asset class'));
     },
 
     getForexRate: function (from, to, provider) {
@@ -632,7 +482,7 @@
       if (!/^[A-Z]{3}$/.test(base) || !/^[A-Z]{3}$/.test(quote) || base === quote) {
         return Promise.reject(DataError('unsupported', 'Unsupported currency pair'));
       }
-      if (navigator.onLine === false) return Promise.reject(DataError('offline', 'The device is offline'));
+      if (isOffline()) return Promise.reject(offlineError('The device is offline'));
       return liveForexCurrencies().then(function (currencies) {
         var supported = currencies.some(function (c) { return c.code === base; }) && currencies.some(function (c) { return c.code === quote; });
         if (!supported) throw DataError('unsupported', 'Unsupported currency pair');
@@ -650,68 +500,55 @@
       if (!symbol) return Promise.resolve(null);
       var known = C.find(symbol);
       if (known) return Promise.resolve(known);
-      if (navigator.onLine === false) return Promise.resolve(null);
+      if (isOffline() || !canUseProxy()) return Promise.resolve(null);
       return searchCrypto(symbol).catch(function () { return null; });
     },
 
     getOverview: function () {
-      var settings = TA.store.settings();
-      var liveAllowed = settings.dataMode !== 'sample' && navigator.onLine !== false;
+      if (isOffline()) return Promise.reject(offlineError('The device is offline'));
       var overviewAssets = C.overviewStocks();
-      var stocks = overviewAssets.map(function (a) {
-        var d = sampleQuick(a);
-        return {
-          symbol: a.symbol, name: a.name, assetClass: 'stock',
-          price: d.price, changePct: d.changePct, spark: d.spark, dataMode: 'sample'
-        };
-      });
-      if (!liveAllowed) {
-        return Promise.resolve({ live: false, crypto: [], stocks: stocks, retrievedAt: Date.now() });
-      }
-      var cryptoP = cgMarkets(C.cryptos().map(function (a) { return a.coingeckoId; }), 90000)
-        .then(function (markets) {
-          return (markets || []).filter(function (m) { return m && U.isNum(m.current_price); })
-            .map(function (m) {
-              var spark = m.sparkline_in_7d && m.sparkline_in_7d.price ? m.sparkline_in_7d.price : [];
-              return {
-                symbol: (m.symbol || '').toUpperCase(), name: m.name, assetClass: 'crypto',
-                price: m.current_price,
-                changePct: U.isNum(m.price_change_percentage_24h_in_currency)
-                  ? m.price_change_percentage_24h_in_currency
-                  : m.price_change_percentage_24h,
-                spark: spark.slice(-48),
-                dataMode: 'live',
-                id: m.id
-              };
-            });
-        })
-        .catch(function () { return []; });
+      var cryptoP = canUseProxy() && C.cryptos().length
+        ? cgMarkets(C.cryptos().map(function (a) { return a.coingeckoId; }), 90000)
+          .then(function (markets) {
+            return (markets || []).filter(function (m) { return m && U.isNum(m.current_price); })
+              .map(function (m) {
+                var spark = m.sparkline_in_7d && m.sparkline_in_7d.price ? m.sparkline_in_7d.price : [];
+                return {
+                  symbol: (m.symbol || '').toUpperCase(), name: m.name, assetClass: 'crypto',
+                  price: m.current_price,
+                  changePct: U.isNum(m.price_change_percentage_24h_in_currency)
+                    ? m.price_change_percentage_24h_in_currency
+                    : m.price_change_percentage_24h,
+                  spark: spark.slice(-48),
+                  dataMode: 'live',
+                  id: m.id
+                };
+              });
+          })
+          .catch(function () { return []; })
+        : Promise.resolve([]);
       var stockP = canUseProxy()
         ? proxyQuotes(overviewAssets.map(function (a) { return a.symbol; })).catch(function () { return []; })
         : Promise.resolve([]);
       return Promise.all([cryptoP, stockP]).then(function (out) {
         var crypto = out[0];
-        var liveBySymbol = {};
-        out[1].forEach(function (q) {
-          if (q && q.symbol && U.isNum(q.price)) liveBySymbol[q.symbol] = q;
-        });
-        stocks = stocks.map(function (stock) {
-          var q = liveBySymbol[stock.symbol];
-          if (!q) return stock;
+        var stocks = (out[1] || []).filter(function (q) {
+          return q && q.symbol && U.isNum(q.price);
+        }).map(function (q) {
           return {
-            symbol: stock.symbol, name: q.name || stock.name, assetClass: 'stock',
+            symbol: q.symbol, name: q.name || q.symbol, assetClass: 'stock',
             price: q.price, changePct: q.changePct, spark: (q.spark || []).slice(-30),
             dataMode: 'live', asOf: q.asOf
           };
         });
-        var anyLive = crypto.length > 0 || stocks.some(function (s) { return s.dataMode === 'live'; });
-        return { live: anyLive, crypto: crypto, stocks: stocks, retrievedAt: Date.now() };
+        if (!crypto.length && !stocks.length) throw offlineError('The live market overview is offline');
+        return { live: true, crypto: crypto, stocks: stocks, retrievedAt: Date.now() };
       });
     },
 
     getQuotes: function (entries) {
-      var settings = TA.store.settings();
-      var liveAllowed = settings.dataMode !== 'sample' && navigator.onLine !== false;
+      entries = Array.isArray(entries) ? entries : [];
+      if (isOffline()) return Promise.reject(offlineError('The device is offline'));
       var cryptoIds = entries.filter(function (e) { return e.assetClass === 'crypto'; })
         .map(function (e) {
           var a = C.find(e.symbol);
@@ -721,21 +558,8 @@
       var stockSymbols = entries.filter(function (e) { return e.assetClass === 'stock'; })
         .map(function (e) { return e.symbol; });
       var result = {};
-      entries.forEach(function (e) {
-        if (e.assetClass === 'stock') {
-          var a = C.find(e.symbol);
-          if (a) {
-            var d = sampleQuick(a);
-            result[e.symbol] = {
-              price: d.price, changePct: d.changePct, spark: d.spark,
-              dataMode: 'sample', asOf: d.asOf
-            };
-          }
-        }
-      });
-      if (!liveAllowed) return Promise.resolve(result);
       var jobs = [];
-      if (cryptoIds.length) {
+      if (cryptoIds.length && canUseProxy()) {
         jobs.push(cgMarkets(cryptoIds, 60000).then(function (markets) {
           (markets || []).forEach(function (m) {
             if (!m) return;
@@ -760,8 +584,10 @@
           });
         }).catch(function () {}));
       }
-      if (!jobs.length) return Promise.resolve(result);
-      return Promise.all(jobs).then(function () { return result; });
+      return Promise.all(jobs).then(function () {
+        if (entries.length && !Object.keys(result).length) throw offlineError('Live quotes are offline');
+        return result;
+      });
     },
 
     testAlphaVantage: function (key) {
@@ -775,18 +601,6 @@
 
     clearCache: function () { cache.clear(); }
   };
-
-  function sampleQuick(asset) {
-    var candles = sampleDaily(asset, asset.assetClass === 'crypto' ? 240 : 420);
-    var last = candles[candles.length - 1];
-    var prev = candles[candles.length - 2] || last;
-    return {
-      price: last.c,
-      changePct: (last.c / prev.c - 1) * 100,
-      spark: candles.slice(-30).map(function (c) { return c.c; }),
-      asOf: last.t
-    };
-  }
 
   TA.data = api;
 })(window.TA = window.TA || {});

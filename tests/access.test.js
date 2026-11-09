@@ -78,6 +78,28 @@ test('wrong password is rejected and recorded', async () => {
   assert.match(res.headers.get('location'), /\/login\?error=bad/);
 });
 
+test('cross-site login posts are rejected before the password is checked', async () => {
+  const res = await call('/login', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      origin: 'https://evil.example',
+      'sec-fetch-site': 'cross-site'
+    },
+    body: new URLSearchParams({ password: PASSWORD, next: '/' }).toString()
+  });
+  assert.equal(res.status, 303);
+  assert.match(res.headers.get('location'), /\/login\?error=origin/);
+  assert.equal(token(res), '');
+});
+
+test('a login post without a form body redirects instead of failing', async () => {
+  const res = await call('/login', { method: 'POST', headers: { origin: BASE } });
+  assert.equal(res.status, 303);
+  assert.match(res.headers.get('location'), /\/login/);
+  assert.equal(token(res), '');
+});
+
 test('correct password issues a signed HttpOnly session', async () => {
   const res = await call('/login', post(PASSWORD, '/analysis?symbol=BTC'));
   assert.equal(res.status, 303);

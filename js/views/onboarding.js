@@ -93,7 +93,7 @@
             '<span class="brand-mark"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.4 21 7.4v9.2L12 21.6 3 16.6V7.4Z" stroke="#ff2fd0" stroke-width="1.5"/><path d="M3 7.4 12 12.4l9-5" stroke="#29e0ff" stroke-width="1.5"/><path d="M12 12.4v9.2" stroke="#29e0ff" stroke-width="1.5"/></svg></span>' +
             '<span><span class="brand-name">' + U.esc(T('app.name')) + '</span><br><span class="brand-sub">' + U.esc(T('app.tagline')) + '</span></span>' +
           '</div>' +
-          '<span class="badge badge-sample">' + U.esc(T('badge.sample')) + ' · MVP</span>' +
+          '<span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('badge.live')) + ' · MVP</span>' +
         '</div>' +
         (step === 1 ? stepOne() : stepTwo()) +
         '</div></div>';

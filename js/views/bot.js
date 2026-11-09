@@ -265,7 +265,7 @@
       });
       var quote = payload.quote || {};
       var quotePrice = U.isNum(quote.price) && quote.price > 0 ? quote.price : null;
-      var live = a.asset.assetClass === 'crypto' && payload.meta && payload.meta.dataMode === 'live' && quotePrice != null;
+      var live = payload.meta && payload.meta.dataMode === 'live' && quotePrice != null;
       var plan = TA.tradeplan.build(a, {
         lang: lang(), style: 'swing',
         price: live ? quotePrice : undefined,

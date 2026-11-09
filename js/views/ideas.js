@@ -7,7 +7,7 @@
   var lang = function () { return TA.i18n.get(); };
 
   var BOUND = '__ideasBound';
-  var state = { loading: false, error: null, result: null };
+  var state = { loading: false, error: null, result: null, failed: 0 };
 
   function stillHere(root) {
     return !!(root && root.isConnected && root.querySelector('[data-ideas-view]'));
@@ -17,6 +17,7 @@
     if (state.loading) return;
     state.loading = true;
     state.error = null;
+    state.failed = 0;
     paint(root);
     var assets = TA.recommend.universe();
     Promise.all(assets.map(function (asset) {
@@ -40,19 +41,19 @@
           price: price || a.facts.price,
           meta: payload.meta
         };
-      }).catch(function () { return null; });
+      }).catch(function () { state.failed++; return null; });
     })).then(function (results) {
       state.loading = false;
       if (!stillHere(root)) return;
       var inputs = results.filter(function (r) { return r && r.a && r.plan; });
-      if (!inputs.length) { state.error = 'error'; paint(root); return; }
+      if (!inputs.length) { state.error = 'offline'; paint(root); return; }
       state.result = TA.recommend.rank(inputs, { max: 6 });
       state.error = state.result.ideas.length ? null : 'empty';
       paint(root);
     }).catch(function () {
       state.loading = false;
       if (!stillHere(root)) return;
-      state.error = 'error';
+      state.error = 'offline';
       paint(root);
     });
   }
@@ -87,9 +88,9 @@
     if (state.loading && !result) {
       return '<div class="ideas-status"><span class="spinner"></span><span>' + U.esc(T('ideas.loading')) + '</span></div>';
     }
-    if (state.error === 'error') {
+    if (state.error === 'offline') {
       return '<div class="ideas-status ideas-status-error">' + ui.icon('warning', 15) +
-        '<span>' + U.esc(T('ideas.error')) + '</span></div>';
+        '<span><b>' + U.esc(T('offline.title')) + '.</b> ' + U.esc(T('offline.ideas')) + '</span></div>';
     }
     if (!result) return '';
     return '<div class="ideas-status">' +
@@ -98,8 +99,11 @@
         n: result.scoredCount,
         shown: result.ideas.length
       })) + '</span>' +
-      ui.modeBadge({ dataMode: result.liveCount > 0 ? 'live' : 'sample' }) +
-    '</div>';
+      ui.modeBadge({ dataMode: 'live' }) +
+    '</div>' +
+    (state.failed > 0
+      ? '<p class="tiny muted ideas-offline-note">' + U.esc(T('offline.partial', { n: state.failed })) + '</p>'
+      : '');
   }
 
   function levelCell(labelKey, value) {
@@ -162,10 +166,7 @@
     }
     return '<section class="ideas-list" aria-label="' + U.attr(T('ideas.listLabel')) + '">' +
       result.ideas.map(ideaCard).join('') +
-    '</section>' +
-    (result.sampleCount > 0
-      ? '<p class="tiny muted ideas-sample-note">' + U.esc(T('ideas.sampleNote')) + '</p>'
-      : '');
+    '</section>';
   }
 
   function methodHtml() {

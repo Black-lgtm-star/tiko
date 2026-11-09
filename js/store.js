@@ -86,7 +86,6 @@
     risk: 'balanced',
     language: 'en',
     defaultStyle: 'swing',
-    dataMode: 'auto',
     avKey: '',
     accountSize: 10000,
     riskPct: 1,

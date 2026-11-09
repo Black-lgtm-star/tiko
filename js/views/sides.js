@@ -7,7 +7,7 @@
   var lang = function () { return TA.i18n.get(); };
 
   var BOUND = '__sidesBound';
-  var state = { loading: false, error: null, result: null };
+  var state = { loading: false, error: null, result: null, failed: 0 };
 
   function stillHere(root) {
     return !!(root && root.isConnected && root.querySelector('[data-sides-view]'));
@@ -17,6 +17,7 @@
     if (state.loading) return;
     state.loading = true;
     state.error = null;
+    state.failed = 0;
     paint(root);
     var assets = TA.recommend.universe();
     Promise.all(assets.map(function (asset) {
@@ -28,12 +29,12 @@
         return TA.sides.build({
           asset: a.asset, a: a, quote: payload.quote, meta: payload.meta
         }, { lang: lang(), style: 'swing' });
-      }).catch(function () { return null; });
+      }).catch(function () { state.failed++; return null; });
     })).then(function (rows) {
       state.loading = false;
       if (!stillHere(root)) return;
       rows = rows.filter(Boolean);
-      if (!rows.length) { state.error = 'error'; paint(root); return; }
+      if (!rows.length) { state.error = 'offline'; paint(root); return; }
       rows.sort(function (x, y) {
         var d = Math.abs(y.lean.ratio) - Math.abs(x.lean.ratio);
         return d || x.symbol.localeCompare(y.symbol);
@@ -43,15 +44,13 @@
         at: Date.now(),
         buyLeans: rows.filter(function (r) { return r.lean.dir === 'bull'; }).length,
         sellLeans: rows.filter(function (r) { return r.lean.dir === 'bear'; }).length,
-        neutral: rows.filter(function (r) { return r.lean.dir !== 'bull' && r.lean.dir !== 'bear'; }).length,
-        liveCount: rows.filter(function (r) { return r.dataMode === 'live'; }).length,
-        sampleCount: rows.filter(function (r) { return r.dataMode === 'sample'; }).length
+        neutral: rows.filter(function (r) { return r.lean.dir !== 'bull' && r.lean.dir !== 'bear'; }).length
       };
       paint(root);
     }).catch(function () {
       state.loading = false;
       if (!stillHere(root)) return;
-      state.error = 'error';
+      state.error = 'offline';
       paint(root);
     });
   }
@@ -83,9 +82,9 @@
     if (state.loading && !result) {
       return '<div class="sides-status"><span class="spinner"></span><span>' + U.esc(T('sides.loading')) + '</span></div>';
     }
-    if (state.error === 'error') {
+    if (state.error === 'offline') {
       return '<div class="sides-status sides-status-error">' + ui.icon('warning', 15) +
-        '<span>' + U.esc(T('sides.error')) + '</span></div>';
+        '<span><b>' + U.esc(T('offline.title')) + '.</b> ' + U.esc(T('offline.sides')) + '</span></div>';
     }
     if (!result) return '';
     return '<div class="sides-status">' +
@@ -93,8 +92,11 @@
         time: U.fmtDateTime(result.at, lang()),
         n: result.rows.length
       })) + '</span>' +
-      ui.modeBadge({ dataMode: result.liveCount > 0 ? 'live' : 'sample' }) +
-    '</div>';
+      ui.modeBadge({ dataMode: 'live' }) +
+    '</div>' +
+    (state.failed > 0
+      ? '<p class="tiny muted sides-offline-note">' + U.esc(T('offline.partial', { n: state.failed })) + '</p>'
+      : '');
   }
 
   function leanBadge(lean) {
@@ -174,10 +176,7 @@
     }
     return '<section class="sides-list" aria-label="' + U.attr(T('sides.listLabel')) + '">' +
       result.rows.map(rowHtml).join('') +
-    '</section>' +
-    (result.sampleCount > 0
-      ? '<p class="tiny muted sides-sample-note">' + U.esc(T('sides.sampleNote')) + '</p>'
-      : '');
+    '</section>';
   }
 
   function howHtml() {

@@ -44,7 +44,10 @@ export default async function middleware(req) {
   const path = url.pathname;
 
   if (path === '/login' || path === '/login/' || path === '/login.html') {
-    if (req.method === 'POST') return login(req, url);
+    if (req.method === 'POST') {
+      if (!sameOrigin(req, url)) return redirect(url, '/login?error=origin');
+      return login(req, url);
+    }
     if (await authorized(req)) return redirect(url, safeNext(url.searchParams.get('next')));
     return loginPage(url);
   }
@@ -303,7 +306,12 @@ function cookieHeader(value, maxAge) {
 
 async function login(req, url) {
   if (!configured()) return redirect(url, '/login?error=setup');
-  const form = await req.formData();
+  let form;
+  try {
+    form = await req.formData();
+  } catch (err) {
+    return redirect(url, '/login');
+  }
   const next = safeNext(form.get('next'));
   const ip = clientIp(req);
   if (lockedOut(ip)) return redirect(url, '/login?error=locked&next=' + encodeURIComponent(next));
@@ -1502,6 +1510,7 @@ function errorText(code) {
   if (!configured()) return 'Access is not configured yet. Add TIKO_ACCESS_PASSWORD and TIKO_SESSION_SECRET in Vercel, then redeploy.';
   if (code === 'locked') return 'Too many attempts. Wait a few minutes and try again.';
   if (code === 'bad') return 'That password or access code is not correct.';
+  if (code === 'origin') return 'That sign-in did not come from this site.';
   if (code === 'setup') return 'Access is not configured yet. Add TIKO_ACCESS_PASSWORD and TIKO_SESSION_SECRET in Vercel, then redeploy.';
   return '';
 }

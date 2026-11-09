@@ -120,6 +120,7 @@
             '<a href="#/sides" data-nav="sides">' + U.esc(T('nav.sides')) + '</a>' +
             '<a href="#/markets" data-nav="markets">' + U.esc(T('nav.markets')) + '</a>' +
             '<a href="#/bot" data-nav="bot">' + U.esc(T('nav.bot')) + '</a>' +
+            '<a href="#/deriv-copy" data-nav="deriv-copy">' + U.esc(T('deriv.title')) + '</a>' +
             '<a href="#/overlay" data-nav="overlay">' + U.esc(T('nav.overlay')) + '</a>' +
             '<a href="#/brokers" data-nav="brokers">' + U.esc(T('nav.brokers')) + '</a>' +
             '<a href="#/settings" data-nav="settings">' + U.esc(T('nav.settings')) + '</a>' +
@@ -265,7 +266,7 @@
   }
 
   function markNav(routeName) {
-    var target = ['settings', 'markets', 'ideas', 'sides', 'bot', 'overlay', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
+    var target = ['settings', 'markets', 'ideas', 'sides', 'bot', 'deriv-copy', 'overlay', 'brokers'].indexOf(routeName) >= 0 ? routeName : 'dashboard';
     U.$$('.appnav a[data-nav]', document).forEach(function (a) {
       if (a.getAttribute('data-nav') === target) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -292,6 +293,7 @@
     if (path === '/markets') return { name: 'markets', params: params };
     if (path === '/brokers') return { name: 'brokers', params: params };
     if (path === '/bot') return { name: 'bot', params: params };
+    if (path === '/deriv-copy') return { name: 'deriv-copy', params: params };
     if (path === '/overlay') return { name: 'overlay', params: params };
     var m = path.match(/^\/analysis\/(.+)$/);
     if (m) {
@@ -309,6 +311,7 @@
     if (route.name === 'markets') return T('nav.markets') + ' · ' + T('app.name');
     if (route.name === 'brokers') return T('nav.brokers') + ' · ' + T('app.name');
     if (route.name === 'bot') return T('bot.title') + ' · ' + T('app.name');
+    if (route.name === 'deriv-copy') return T('deriv.title') + ' · ' + T('app.name');
     if (route.name === 'overlay') return T('overlay.title') + ' · ' + T('app.name');
     return T('app.name') + ' — ' + T('app.promise');
   }
@@ -339,6 +342,7 @@
     else if (route.name === 'markets') TA.views.dashboard.renderMarkets(main);
     else if (route.name === 'brokers') TA.views.brokers.render(main);
     else if (route.name === 'bot') TA.views.bot.render(main);
+    else if (route.name === 'deriv-copy') TA.views.derivCopy.render(main);
     else if (route.name === 'overlay') TA.views.overlay.render(main);
     else TA.views.dashboard.render(main);
 

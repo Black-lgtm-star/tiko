@@ -16,7 +16,7 @@
   function cacheKey(asset, style) {
     var s = TA.store.settings();
     var tf = style === 'day' ? 'intraday' : 'daily';
-    return [asset.symbol, asset.coingeckoId || '', tf, s.dataMode,
+    return [asset.symbol, asset.coingeckoId || '', tf,
       s.avKey ? s.avKey.slice(-6) : 'nokey', lang()].join('|');
   }
 
@@ -49,7 +49,7 @@
       uid: uid, width: w, height: h,
       times: a.chart.times, closes: a.chart.closes,
       sma20: a.chart.sma20, sma50: a.chart.sma50,
-      levels: a.chart.levels, sample: a.chart.sample,
+      levels: a.chart.levels,
       interval: a.chart.interval, lang: lang(),
       quotePrice: a.facts.price,
       quoteText: U.fmtPrice(a.facts.price, '$', lang()),
@@ -70,7 +70,7 @@
 
     var kv = [
       [T('an.day_range'), f.dayLowText + ' – ' + f.dayHighText],
-      [T('an.volume'), f.volumeText + (m.dataMode === 'sample' && a.asset.assetClass === 'stock' ? ' · sample' : '')],
+      [T('an.volume'), f.volumeText],
       [T('an.prev_close'), f.prevCloseText],
       [T('an.snapshot.pct_from_high'), f.drawdownText]
     ];
@@ -955,7 +955,6 @@
       if (card.contains(document.activeElement)) return;
       var asset = entry.a.asset;
       if (!asset || asset.assetClass !== 'crypto') { stop(); return; }
-      if (TA.store.settings().dataMode === 'sample') return;
       TA.data.getQuotes([{ symbol: asset.symbol, assetClass: 'crypto', coingeckoId: asset.coingeckoId || null }])
         .then(function (res) {
           if (!alive || !card.isConnected) return;
@@ -1207,17 +1206,6 @@
     };
   }
 
-  /* ---------------- data banners ---------------- */
-  function dataBanners(a) {
-    var m = a.meta;
-    if (m.dataMode === 'sample') {
-      return '<div class="sample-banner">' + ui.icon('warning', 15) +
-        '<div><b>' + esc(T('an.sample_banner')) + '</b>' +
-        (m.fallback ? '<br>' + esc(T('an.fallback_banner')) : '') + '</div></div>';
-    }
-    return '';
-  }
-
   /* ---------------- lens ---------------- */
   function lensSection(a, style) {
     var f = a.facts;
@@ -1335,7 +1323,7 @@
   /* ---------------- section 02 ---------------- */
   function contextSection(a) {
     var f = a.facts;
-    var liqNote = a.liquidity.sampleStock ? T('liq.note_stock') : T('liq.note', a.liquidity.noteParams);
+    var liqNote = T('liq.note', a.liquidity.noteParams);
     function ctx(title, termKey, value, meter, meterClass, note) {
       return '<div class="ctx">' +
         '<div class="k"><span>' + ui.term(termKey, title) + '</span></div>' +
@@ -1639,7 +1627,6 @@
         '<span>/</span><span class="mono">' + esc(a.asset.symbol) + '</span></div>' +
       assetHead(a) +
       tabs(a, style, settings) +
-      dataBanners(a) +
       '<div style="margin-top:18px"></div>' +
       snapshotSection(a) +
       planCard(entry) +

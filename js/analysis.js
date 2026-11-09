@@ -497,8 +497,7 @@
       },
       liquidity: {
         key: liqKey, meter: liqMeter, dollarVolume: dollarVolume,
-        noteParams: { dv: facts.dollarVolumeText || '—' },
-        sampleStock: asset.assetClass === 'stock' && meta.dataMode === 'sample'
+        noteParams: { dv: facts.dollarVolumeText || '—' }
       },
       session: session,
       evidence: { bull: bull, bear: bear, bullScore: bullScore, bearScore: bearScore },
@@ -516,7 +515,6 @@
         sma20: sma20Arr,
         sma50: sma50Arr,
         levels: levels.slice(0, 3).map(function (c) { return { price: c.price, kind: c.kind }; }),
-        sample: meta.dataMode === 'sample',
         interval: meta.interval
       },
       generatedAt: Date.now()

@@ -77,11 +77,8 @@
       '<div class="card-head"><h2 id="set-data">' + U.esc(T('set.data')) + '</h2>' +
         '<span class="hint">' + U.esc(T('set.data.d')) + '</span></div>' +
       '<div class="card-body">' +
-        '<div class="field"><label for="set-mode">' + U.esc(T('set.mode')) + '</label>' +
-          '<select id="set-mode" class="input" data-set-mode>' +
-            '<option value="auto"' + (s.dataMode !== 'sample' ? ' selected' : '') + '>' + U.esc(T('set.mode.auto')) + '</option>' +
-            '<option value="sample"' + (s.dataMode === 'sample' ? ' selected' : '') + '>' + U.esc(T('set.mode.sample')) + '</option>' +
-          '</select>' +
+        '<div class="field"><span class="tiny muted">' + U.esc(T('set.mode')) + '</span>' +
+          '<div><span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('set.mode.live')) + '</span></div>' +
           '<div class="help">' + U.esc(T('set.mode.note')) + '</div></div>' +
         '<div class="field" style="margin-top:20px">' +
           '<label for="set-av">' + U.esc(T('set.av')) + '</label>' +
@@ -246,13 +243,6 @@
     var langSel = root.querySelector('[data-set-lang]');
     if (langSel) langSel.addEventListener('change', function () {
       TA.app.setLanguage(langSel.value);
-    });
-
-    var modeSel = root.querySelector('[data-set-mode]');
-    if (modeSel) modeSel.addEventListener('change', function () {
-      TA.store.updateSettings({ dataMode: modeSel.value });
-      TA.data.clearCache();
-      ui.toast(T('common.saved'));
     });
 
     var accountInput = root.querySelector('[data-set-account]');

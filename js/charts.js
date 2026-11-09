@@ -117,9 +117,6 @@
       var quoteY = quoteDiffers ? y(model.quotePrice) : null;
       var up = closes[closes.length - 1] >= closes[0];
       var stroke = up ? '#3ddc97' : '#ff5c8a';
-      var watermark = model.sample
-        ? '<text x="' + (W / 2) + '" y="' + (H / 2 + 10) + '" fill="#ffc857" fill-opacity="0.10" font-size="46" font-weight="700" letter-spacing="6" text-anchor="middle" transform="rotate(-14 ' + (W / 2) + ' ' + (H / 2) + ')">SAMPLE DATA</text>'
-        : '';
       var quoteMark = quoteDiffers
         ? '<line x1="' + pad.l + '" y1="' + quoteY.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + quoteY.toFixed(1) + '" stroke="#f5f0ff" stroke-opacity="0.34" stroke-width="1" stroke-dasharray="5 4"/>' +
           '<circle cx="' + last[0].toFixed(1) + '" cy="' + quoteY.toFixed(1) + '" r="3.8" fill="#f5f0ff" stroke="#07040e" stroke-width="1.5"/>' +
@@ -135,7 +132,7 @@
         '<stop offset="0%" stop-color="' + stroke + '" stop-opacity="0.18"/>' +
         '<stop offset="100%" stop-color="' + stroke + '" stop-opacity="0"/>' +
         '</linearGradient></defs>' +
-        grid + watermark +
+        grid +
         '<path d="' + area + '" fill="url(#fill-' + (model.uid || 'x') + ')"/>' +
         smaPaths + levels + quoteMark +
         '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>' +
