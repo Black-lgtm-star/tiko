@@ -57,6 +57,9 @@ test('create and normalize produce safe defaults', () => {
   assert.equal(n.positions.length, 0);
   assert.equal(n.closed.length, 0);
   assert.equal(n.realized, 0);
+  assert.equal(TA.bot.normalize({ approval: 'paper' }).approval, 'auto');
+  assert.equal(TA.bot.normalize({ approval: 'live' }).approval, 'ask');
+  assert.deepEqual([...TA.bot.approvals], ['ask', 'auto']);
 });
 
 test('decide opens only active setups with enough evidence and reward', () => {
@@ -371,7 +374,6 @@ test('every bot.* key used in code exists in EN and ES', () => {
     used.add('bot.auto.mode.' + mode);
     used.add('bot.auto.note.' + mode);
   });
-  ['1', '2', '3', '4'].forEach((n) => used.add('bot.auto.modal.' + n));
   ['1', '2', '3', '4', '5', '6'].forEach((n) => used.add('bot.rules.' + n));
   ['paused', 'watching', 'up', 'down', 'ready'].forEach((m) => used.add('bot.persona.mood.' + m));
   ['now', 'armed'].forEach((t) => used.add('bot.scan.timing.' + t));
@@ -393,4 +395,22 @@ test('every bot.* key used in code exists in EN and ES', () => {
   assert.deepEqual(missingEn, [], 'missing EN: ' + missingEn.join(', '));
   assert.deepEqual(missingEs, [], 'missing ES: ' + missingEs.join(', '));
   assert.equal(enKeys.size, esKeys.size, 'EN/ES bot key counts differ');
+});
+
+test('broker connectivity and ordering are fully removed', () => {
+  assert.equal(fs.existsSync(path.join(root, 'js/broker.js')), false);
+  assert.equal(fs.existsSync(path.join(root, 'api/_snaptrade.js')), false);
+
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.equal(/js\/broker\.js/.test(html), false);
+  assert.equal(/js\/views\/brokers\.js/.test(html), true);
+
+  const botView = fs.readFileSync(path.join(root, 'js/views/bot.js'), 'utf8');
+  ['TA.broker', 'data-broker-form', 'data-broker-order', 'data-bot-authorize',
+    'data-bot-revoke', 'data-pending-live'].forEach((needle) => {
+    assert.equal(botView.indexOf(needle), -1, 'bot view still references ' + needle);
+  });
+
+  const vercel = fs.readFileSync(path.join(root, 'vercel.json'), 'utf8');
+  assert.equal(/alpaca/i.test(vercel), false);
 });

@@ -8,12 +8,11 @@ It also turns that read into a conditional **action plan** — trigger, stop los
 reward-to-risk and risk-based position sizing — recomputed from the live price for crypto. Stop loss
 and take profit can be overridden per symbol and lens, and the plan recalculates live. A paper trade
 bot runs the same rules against a virtual ledger, picks its timing and candidates, asks before each
-entry or opens them on its own, and manages its exits. An optional Alpaca connection can turn a
-scan candidate into a live order — after you review and confirm it, or under a live autopilot grant
-you explicitly enable for this tab. An Ideas page ranks those same setups with fixed, visible
-weights so you can see which candidates score best, and a Buy / Sell page pairs the long and short
-versions of each stock's plan side by side. The app does not predict prices, and live trading is
-never on unless you connect a broker and grant it.
+entry or opens them on its own, and manages its exits. Everything the bot does stays in the
+browser's virtual ledger; the app holds no brokerage connection and cannot place a real order. An
+Ideas page ranks those same setups with fixed, visible weights so you can see which candidates
+score best, and a Buy / Sell page pairs the long and short versions of each stock's plan side by
+side. The app does not predict prices.
 
 ## Run it
 
@@ -30,7 +29,8 @@ python -m http.server 8000
 Then open `http://localhost:8000`.
 
 Stock quotes go through the same-origin `/api/quote` proxy and crypto through `/api/crypto`, so the
-browser security policy stays strict. FX rates go directly to Frankfurter. There is no synthetic
+browser security policy stays strict. FX rates go directly to Frankfurter, or to Alpha Vantage when
+an optional key is set. There is no synthetic
 fallback: when a live provider is offline, the affected view says so and shows no prices. The
 serverless routes need Vercel (or another Node serverless host); a plain static local server runs
 the UI but live stock and crypto data need the API routes or an optional Alpha Vantage key for
@@ -256,7 +256,7 @@ re-probes.
 
 Copy trading places real trades automatically. Positions already opened stay on the account when a
 copy is stopped. The CSP in `vercel.json` permits `https://api.derivws.com`, `wss://api.derivws.com`
-and `wss://ws.derivws.com` alongside the market-data and Alpaca hosts.
+and `wss://ws.derivws.com` alongside the market-data hosts.
 
 ## No ads, no third-party scripts
 
@@ -265,7 +265,7 @@ that with a Content-Security-Policy (`vercel.json`):
 
 - `script-src 'self'` — only the app's own `js/*.js` files execute; injected ad or tracker scripts are refused.
 - `frame-src 'none'`, `object-src 'none'` — no remote ad frames, interstitials or plugins can render over the UI.
-- `connect-src` permits only the same-origin market APIs (`/api/stocks`, `/api/quote`, `/api/crypto`), Alpha Vantage (`www.alphavantage.co`) and Frankfurter (`api.frankfurter.dev`), Alpaca's trading hosts (`api.alpaca.markets`, `paper-api.alpaca.markets`) and Deriv's REST and WebSocket hosts (`https://api.derivws.com`, `wss://api.derivws.com`, `wss://ws.derivws.com`); CoinGecko and Yahoo Finance are reached by the serverless proxies, never directly by the browser.
+- `connect-src` permits only the same-origin market APIs (`/api/stocks`, `/api/quote`, `/api/crypto`), Alpha Vantage (`www.alphavantage.co`) and Frankfurter (`api.frankfurter.dev`), and Deriv's REST and WebSocket hosts (`https://api.derivws.com`, `wss://api.derivws.com`, `wss://ws.derivws.com`); CoinGecko and Yahoo Finance are reached by the serverless proxies, never directly by the browser.
 - Browser storage is local to the device. Watchlists, notes and settings use `localStorage`; the optional Alpha Vantage key uses `sessionStorage` and is cleared when the tab ends. Browser storage is not encrypted at rest.
 - No third-party search redirect: ticker lookup stays in the app through the catalog, Markets page and U.S. stock directory.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` — no other site can wrap the app in a frame with its own overlays.
@@ -283,7 +283,7 @@ CDN that could inject content. Keep this policy in place if you change hosting.
 All suites run on Node's built-in test runner (Node 20+) with no dependencies:
 
 ```bash
-node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/crypto-proxy.test.js tests/brokers.test.js tests/deriv.test.js tests/deriv-api.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/broker.test.js tests/recommend.test.js tests/sides.test.js
+node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/crypto-proxy.test.js tests/brokers.test.js tests/deriv.test.js tests/deriv-api.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/recommend.test.js tests/sides.test.js tests/fx-source.test.js
 # or: npm test (when Node is on PATH)
 ```
 
@@ -336,13 +336,8 @@ The bot suite covers state normalization, the open/watch/skip decision matrix, t
 candidate ranking, the ask-mode proposal queue and its expiry and cap, approve and decline, the
 disabled, duplicate and position-limit guards, sized entries, stop gaps filled at the worse price,
 target fills, short mirroring, plan flips closed at market, breakeven and trailing exits, the
-deterministic persona voice, EN/ES copy coverage, stats, start/pause and deterministic output (24
-tests). The broker
-suite covers key normalization and session storage, live and paper base URLs, Alpaca headers,
-account/position/order normalization, connect saving only after a successful account call, the
-canTrade gate, bracket-order construction and its crypto/short/fractional rejections, the
-explicit-confirmation gate, the POST payload and upstream error mapping, and the session-scoped
-autopilot grant (13 tests), with fetch and session storage injected. The session suite covers the
+deterministic persona voice, EN/ES copy coverage, stats, start/pause, deterministic output and a
+guard that broker connectivity and ordering are absent (25 tests). The session suite covers the
 one-shot role lookup, owner/member mapping, unknown and missing roles, rejected lookups and the
 no-fetch fallback (5 tests). The purchase suite covers the public buy page, server-priced Checkout
 Sessions, pass metadata and return URLs, foreign, unknown, failed and burst checkouts, webhook
@@ -356,7 +351,10 @@ gated start with stake caps, stop, disconnect, error mapping and the legacy endp
 fake WebSocket (11 tests). The Deriv API suite covers config, token and account-ID validation, the
 accounts call and its headers, account selection, the OTP exchange, the socket URL allow-list, balance
 and position mapping, portfolio tolerance, refresh, disconnect, error mapping and token masking (10
-tests), with fetch, WebSocket and session storage injected. All twenty-one suites total 243 tests.
+tests), with fetch, WebSocket and session storage injected. A data-layer suite covers FX source
+selection: Alpha Vantage when a key is set, Frankfurter without one, Frankfurter fallback on an
+Alpha Vantage limit, and the explicit-provider path (4 tests). All twenty-one suites total 235
+tests.
 
 ## What is in the MVP
 
@@ -379,8 +377,7 @@ tests), with fetch, WebSocket and session storage injected. All twenty-one suite
   taxonomy with cost traps, indicative all-in costs, asset-class notes, tax prompts, a 20-question
   due-diligence checklist with local progress, red flags, 2026–28 trends and links to official
   regulator registers. Firms appear as examples only — never as endorsements, rankings or
-  recommendations — and the page itself opens no account and routes no order. The separate Alpaca
-  connection on `#/bot` is optional, confirmation-gated, and never enabled by this page.
+  recommendations — and the page itself opens no account and routes no order.
 - **Paper trade bot** — an on-device, deterministic simulator on `#/bot` that scouts the watchlist
   plus a short U.S. stock list, ranks candidates by timing window and reward-to-risk, and enters
   only when the same plan rules used on the Analysis page are active or triggered with at least
@@ -393,7 +390,8 @@ tests), with fetch, WebSocket and session storage injected. All twenty-one suite
   1.5R. It keeps a virtual ledger, equity curve, win rate and R multiples in this browser, has a
   recognizable voice and mood, and scans about once a minute while the page is open and the bot is
   running, so stops and targets are checked on a fresh quote. It runs on simulated data by default
-  and its results are not a forecast of real performance.
+  and its results are not a forecast of real performance. The ledger is virtual: the app has no
+  brokerage connection and cannot send a real order.
 - **Screen-share overlay** — `#/overlay` shares a trading window, tab or display with the browser's
   own picker, reads the price shape on-device every few seconds and draws its read over the capture:
   the detected plot frame, support and resistance lines, the last-price marker and a
@@ -405,19 +403,6 @@ tests), with fetch, WebSocket and session storage injected. All twenty-one suite
   bot's conditional plan for the symbol you name, and the stance card mirrors any open paper
   position. A shared chart carries no ticker, axis values or timeframe, so the read is a shape
   estimate, not a quote, and the overlay never places an order.
-- **Optional Alpaca broker** — the bot page can connect an Alpaca account from this tab. Keys are
-  kept in `sessionStorage` (`gt.broker.v1`), sent only to Alpaca, never stored on a server, and
-  cleared when the tab closes or you disconnect. You choose live or paper mode; the card shows the
-  account status, equity, buying power, broker positions and open orders. For a scan candidate the
-  bot can build an order ticket, but nothing is sent until you tick the acknowledgement and press
-  **Send order**. Tickets are offered only for live stock scans less than an hour old. An explicit
-  **live autopilot** grant is the one exception: after a separate acknowledgement, the grant lives
-  in `sessionStorage` (`gt.broker.autopilot.session.v1`), dies with the tab, and lets the bot submit
-  at most one long stock or ETF bracket order per scan. Pausing the bot, disconnecting the broker,
-  changing mode or leaving auto mode revokes it — the pause button is the kill switch. This build
-  sends long stock and ETF entries as whole-share market buys with a bracket stop and target; short
-  setups and crypto stay on the paper ledger. TIKOTrade is not affiliated with Alpaca, and the app
-  is not investment advice.
 - **Ideas page** — `#/ideas` ranks the supported U.S. stocks with the same analysis and plan rules
   used elsewhere. A fixed weighted score (directional evidence 30, trend 20, reward-to-risk 18,
   setup state 15, liquidity 8, volume 5, confirmation checks 4) is reduced by visible penalties for
@@ -508,6 +493,7 @@ tests), with fetch, WebSocket and session storage injected. All twenty-one suite
 | Stocks | Yahoo Finance chart API through the same-origin `/api/quote` proxy (no key) | `LIVE` / delayed, retrieval and quote timestamps; 2 years of daily bars or 5-minute intraday bars |
 | Stocks (optional fallback) | Alpha Vantage (`TIME_SERIES_DAILY`, `GLOBAL_QUOTE`) with your own key | `LIVE` / `DELAYED`, end-of-day bars |
 | Any provider offline | No substitute series | The view says the live provider is offline and shows no price |
+| FX quotes (optional preferred) | Alpha Vantage (`CURRENCY_EXCHANGE_RATE`) with your own key | `LIVE`-labelled quote with bid, ask, refresh time and provider; falls back to Frankfurter on any error or limit |
 | FX reference rates | Frankfurter (`/v2/rates`, `/v2/currencies`, `/v2/providers`) | Latest published daily reference rate, source and date; not real-time trading quotes |
 | U.S. stock listings | Nasdaq Trader symbol directories (`nasdaqlisted.txt`, `otherlisted.txt`) | Current Nasdaq, NYSE and NYSE Arca listings; directory names only, never prices |
 
@@ -534,13 +520,16 @@ tests), with fetch, WebSocket and session storage injected. All twenty-one suite
   identifiers. Set `COINGECKO_API_KEY` (and `COINGECKO_API_TIER=pro` for a Pro key) on the server to
   raise the upstream limit; the key is never sent to the browser.
 
-### Optional Alpha Vantage fallback (stocks)
+### Optional Alpha Vantage key (FX preference and stock fallback)
 
 1. Get a free key at <https://www.alphavantage.co/support/#api-key>.
 2. Open **Settings → Data sources**, paste the key, and use **Test key**.
 3. The key is kept in this tab's `sessionStorage` and is sent directly to Alpha Vantage only when the
-   live quote proxy is unavailable. It is cleared when the tab session ends.
-4. FX reference rates use Frankfurter and need no API key.
+   live quote proxy is unavailable or a single FX pair is quoted. It is cleared when the tab session
+   ends.
+4. With a key, single-pair FX quotes come from Alpha Vantage first and fall back to Frankfurter on any
+   error or rate limit. The Markets rate table stays on Frankfurter because Alpha Vantage quotes one
+   pair per call. Without a key, FX uses Frankfurter and needs no API key.
 5. If every live source fails, no price is shown. The view reports that the live provider is offline.
 
 ## Design
@@ -586,7 +575,6 @@ js/tradeplan.js     conditional action plan, state machine, position sizing
 js/bot.js           deterministic paper-trading loop, proposals, exits, persona and stats
 js/recommend.js     deterministic ranking of stock setups: weighted score, tiers, sector cap
 js/sides.js         one analysis input → mirrored buy and sell plan cases with per-share risk
-js/broker.js        optional Alpaca client: session keys, account, positions, orders, confirm gate, autopilot grant
 js/copilot.js       on-device brief and question answering over facts, plan and levels
 js/chartread.js     on-device screenshot scanner: plot bounds, direction, levels, confidence
 js/overlay.js       screen-share capture, frame scanning and the drawn read (no upload)
@@ -624,13 +612,10 @@ functions used everywhere else. `sides.build` is pure too: it runs `tradeplan.bu
 same analysis with the side forced long and short, then reports both conditional cases, their
 per-share risk and reward and whether each case is actionable; it never promotes a hypothetical
 scenario to a confirmed setup. The Buy / Sell view only fetches the catalog's daily series and sorts
-rows by the strength of the lean. The single network path to a broker is `broker.submit`, which is reachable
-from the review dialog after the acknowledgement checkbox is ticked, or from a scan while a live
-autopilot grant is present; `broker.submit` itself rejects any call whose `deps.confirm` is not
-exactly `true`, and the grant can only be created for live keys. The grant is read at scan time,
-never covers crypto or short setups, and is cleared by pause, disconnect, a mode change or leaving
-auto mode. Keys are read from session storage at call time and are never written to the ledger, the
-DOM, logs or a server.
+rows by the strength of the lean. The app has no brokerage integration: there is no client that
+submits an order, and nothing in the bot or plan flow can reach a trading venue. The only outbound
+trading call in the product is the optional Deriv Copy page, which talks to `api.derivws.com` with
+credentials you enter for that tab.
 
 Storage keys: `gt.settings.v1` also holds `theme` (`dark`, `light` or `system`), `accountSize` and
 `riskPct` for the sizing calculator.
@@ -643,8 +628,7 @@ correctly from recents or the watchlist.
 
 `gt.settings.v1`, `gt.watchlist.v1`, `gt.recents.v1`, `gt.notes.v1`, `gt.feedback.v1`,
 `gt.planlevels.v1`, `gt.brokerchecks.v1`, `gt.bot.v1`, and — in session storage only —
-`gt.broker.v1`, `gt.broker.autopilot.session.v1`, `gt.deriv.session.v1` and
-`gt.deriv.api.session.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
+`gt.deriv.session.v1` and `gt.deriv.api.session.v1`. `gt.market-alerts.last-event.v1` records the last delivered session alert so a
 reload does not repeat it; alert preferences live in `gt.settings.v1`. Legacy device-account keys
 (`gt.auth.*`) and per-account data (`gt.u.<uid>.*`) from the old sign-in build are migrated into the
 shared profile and removed on first load.
@@ -655,12 +639,8 @@ cleared by the checklist reset and by Reset all data.
 pending proposals, the last scan's decisions, the activity log (200 entries), realised P&L and up
 to 120 equity snapshots. Open positions are capped at 2, 3 or 5 by the page control, proposals at
 five with a 30-minute expiry, closed trades at 120. The bot's reset button and Reset all data both
-clear it.
-`gt.broker.v1` is the exception: it holds the Alpaca key ID, secret and mode in `sessionStorage`
-only, is never serialized into the ledger or a reset export, and disappears when the tab closes.
-`gt.broker.autopilot.session.v1` holds the live autopilot grant and nothing else; it requires live
-`gt.broker.v1` keys to be read, covers one long stock or ETF order per scan, and is removed by
-pause, disconnect, a mode change or leaving auto mode. The app holds no server-side copy.
+clear it. A save from the older build with the removed live-autopilot modes is normalized to `ask`
+(the legacy `paper` value becomes `auto`), so the ledger keeps working without any order path.
 Plan overrides are keyed by `symbol|assetClass|lens` and keep only positive, direction-valid prices.
 Personal notes, watchlists and feedback stay in this browser unless feedback is exported. Market-data requests go directly from the browser to the named provider, except stock quotes and crypto, which pass through TIKOTrade's same-origin `/api/quote` and `/api/crypto` proxies.
 
@@ -680,7 +660,9 @@ Personal notes, watchlists and feedback stay in this browser unless feedback is 
 The Markets page (`#/markets`) searches the official Nasdaq Trader directories for Nasdaq, NYSE and
 NYSE Arca stocks, and loads current and legacy currency codes, latest rates, and source attribution
 from the public Frankfurter API. Rates can be filtered by provider. Frankfurter rates are daily
-reference rates, not intraday trading quotes; they require internet access but no API key. Stock
+reference rates, not intraday trading quotes; they require internet access but no API key. The
+dashboard's single-pair FX quote prefers Alpha Vantage when a key is set and names the provider it
+actually used. Stock
 directory entries are real listings; opening one loads live delayed daily or 5-minute bars from
 Yahoo Finance through `/api/quote`. If that provider is offline, the page shows an offline message
 and no prices rather than substitute data.
@@ -710,20 +692,19 @@ still being translated.
 Included: stocks and crypto, on-demand analysis, a ranked Ideas page built from fixed rules, a
 buy/sell comparison page for every supported stock, search,
 watchlist, recent analyses, local feedback, a simulated paper trade bot whose ledger never leaves
-the browser, and an optional Alpaca connection that sends a live order only after per-order
-confirmation or an explicit, session-scoped live autopilot grant.
+the browser, the educational Brokers reference page, and the optional Deriv Copy page that talks to
+Deriv with credentials you supply for that tab.
 Excluded by design: personalized advice, brokerage ratings or endorsements, price forecasts,
-price or trigger alerts, automatic order execution without a revocable opt-in, portfolio tracking, licensed
+price or trigger alerts, portfolio tracking, licensed
 news/event feeds, options chains, fundamental valuation data. Market-session open/close reminders
 are included because they describe exchange hours, not a trade recommendation. The Ideas page ranks
 rule-based setups so they can be reviewed side by side; its score is not a probability, a target or
 a promise. The Buy / Sell page shows both conditional directions for comparison; the presence of a
 sell case for a bullish lean — or the reverse — is symmetry in the tool, not a suggestion to take
-the other side. The page named "trade bot" runs as a deterministic simulator by default; you choose
-whether it asks before each paper entry or opens them on its own, and either way it manages and
-closes the positions it opened. Live orders exist only through the explicitly connected Alpaca
-account, are limited to long stock and ETF brackets, and require either the review dialog or the
-session-only autopilot grant you enable after a separate acknowledgement.
+the other side. The page named "trade bot" is a deterministic simulator: you choose whether it asks
+before each paper entry or opens them on its own, and either way it manages and closes the
+positions it opened in the virtual ledger. The app holds no brokerage connection and cannot submit
+an order; live and paper stock and crypto trades are not offered.
 
 ## Disclaimer
 
@@ -734,8 +715,9 @@ price forecast or a personalized recommendation. The Buy / Sell page pairs a lon
 for the same analysis so you can compare the levels; both cases are conditional reads of structure,
 not recommendations to take either side. The action plan is a conditional read of levels,
 trend and volume — not a forecast or an order. Data may be delayed or incomplete; when a live
-provider is offline the app says so and shows no prices instead of synthetic data. The optional Alpaca connection can send a real order to your account only after
-you review and confirm it, or while a live autopilot grant you enabled from this tab remains active;
-that grant is session-only, limited to one long stock or ETF order per scan, and is revoked by
-pause, disconnect, a mode change or leaving auto mode. You are responsible for every order sent
-from your account. TIKOTrade is not affiliated with Alpaca. You are responsible for your decisions.
+provider is offline the app says so and shows no prices instead of synthetic data. The app has no
+brokerage connection, so nothing you do outside Deriv Copy can place, close or size a real trade;
+the bot's fills are simulation only. Deriv Copy acts on the Deriv account whose token you enter for
+that tab, and positions a copy opened stay on that account when the copy is stopped. You remain
+responsible for every order placed from any account you connect yourself. You are responsible for
+your decisions.

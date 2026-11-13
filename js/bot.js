@@ -1,4 +1,4 @@
-/* bot.js — deterministic paper-trading loop. Live orders live in broker.js and always need confirmation. */
+/* bot.js — deterministic paper-trading loop. The ledger is virtual; the app places no real orders. */
 (function (TA) {
   'use strict';
   var U = TA.util;
@@ -10,7 +10,7 @@
   var MAX_PENDING = 5;
   var PENDING_MS = 30 * 60 * 1000;
   var POSITION_LIMITS = [2, 3, 5];
-  var APPROVALS = ['ask', 'paper', 'auto'];
+  var APPROVALS = ['ask', 'auto'];
   var MIN_RR = 1.3;
   var OPEN_STATES = ['in_play', 'triggered'];
 
@@ -87,6 +87,8 @@
     state.version = VERSION;
     state.enabled = !!state.enabled;
     state.maxPositions = POSITION_LIMITS.indexOf(Number(state.maxPositions)) >= 0 ? Number(state.maxPositions) : 3;
+    // Older saves used 'paper' for the auto-approve mode.
+    if (state.approval === 'paper') state.approval = 'auto';
     state.approval = APPROVALS.indexOf(state.approval) >= 0 ? state.approval : 'ask';
     state.autoStocks = state.autoStocks !== false;
     state.startEquity = positive(state.startEquity);

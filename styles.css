@@ -2041,23 +2041,6 @@ body::after {
 }
 .bot-check input { margin-top: 3px; flex: none; }
 .bot-check span { display: flex; flex-direction: column; gap: 2px; }
-.bot-auto-live {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin-top: 14px; padding: 10px 12px;
-  border: 1px solid var(--line-soft); border-radius: 10px;
-}
-.bot-auto-live.on { border-color: rgba(255, 92, 138, .4); background: var(--bear-dim); }
-.bot-auto-live > div { min-width: 0; }
-.bot-auto-live b { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.bot-auto-live p { margin-top: 2px; line-height: 1.45; }
-.bot-auto-live .btn { flex: none; }
-.bot-auto-note { margin-top: 12px; line-height: 1.5; }
-.bot-auto-list {
-  margin: 10px 0 14px; padding-left: 18px;
-  display: flex; flex-direction: column; gap: 7px;
-  font-size: 12.5px; line-height: 1.5; color: var(--text-2);
-}
-.bot-auto-list li::marker { color: var(--accent); font-family: var(--display); font-weight: 700; }
 .bot-pending-list {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; max-height: 360px; overflow: auto;
@@ -2086,79 +2069,21 @@ body::after {
 }
 
 :root[data-theme="light"] .bot-persona-quip { background: rgba(20, 32, 51, .04); }
-:root[data-theme="light"] .bot-auto-live { background: rgba(20, 32, 51, .03); }
-:root[data-theme="light"] .bot-auto-live.on { background: rgba(200, 40, 80, .08); }
 
 @media (max-width: 640px) {
   .bot-pending-row { flex-direction: column; align-items: flex-start; }
   .bot-pending-actions { justify-content: flex-start; }
-  .bot-auto-live { flex-direction: column; align-items: flex-start; }
   .bot-log-time { width: 100%; }
   .bot-quip { margin-left: 0; }
 }
 
-/* ---------------- Alpaca broker ---------------- */
-.bot-broker-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--display); font-size: 9.5px; font-weight: 700;
-  letter-spacing: .12em; text-transform: uppercase;
-  border-radius: 999px; padding: 5px 10px; border: 1px solid;
-}
-.bot-broker-badge.live { color: var(--bear); border-color: rgba(255, 92, 138, .45); background: var(--bear-dim); }
-.bot-broker-badge.paper { color: var(--cyan); border-color: var(--cyan-line); background: var(--cyan-dim); }
-.bot-broker-head { align-items: flex-start; }
-.bot-broker-lede { font-size: 13px; color: var(--text-2); line-height: 1.55; max-width: 780px; }
-.bot-broker-form {
-  display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 10px; align-items: end; margin-top: 14px;
-}
+/* ---------------- Broker ticket (Deriv confirmation) ---------------- */
 .bot-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .bot-field > span {
   font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--muted-2); font-weight: 650;
 }
 .bot-field .input { width: 100%; height: 38px; }
-.bot-broker-form .btn { height: 38px; }
-.bot-broker-note { margin-top: 10px; line-height: 1.5; }
-.bot-broker-error { margin-top: 10px; font-size: 12.5px; color: var(--bear); }
-.bot-broker-stats {
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px; margin-top: 14px;
-}
-.bot-broker-stats > div {
-  min-width: 0; padding: 10px 12px;
-  background: rgba(255, 255, 255, .018);
-  border: 1px solid var(--line-soft); border-radius: 9px;
-}
-.bot-broker-stats span {
-  display: block; font-size: 9.5px; font-weight: 650; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--muted-2);
-}
-.bot-broker-stats b {
-  display: block; margin-top: 3px;
-  font-family: var(--display); font-size: 16px; line-height: 1.25;
-  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.bot-broker-warn { margin: 14px 0; }
-.bot-broker-split {
-  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 18px; margin-top: 16px;
-}
-.bot-broker-split h3 {
-  margin: 0 0 6px; font-family: var(--display); font-size: 10.5px;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2);
-}
-.bot-broker-empty { padding: 12px 0; }
-.bot-broker-orders { list-style: none; margin: 0; padding: 0; }
-.bot-broker-orders li {
-  display: flex; align-items: center; gap: 8px; padding: 8px 0;
-  border-bottom: 1px solid var(--line-soft); font-size: 12.5px;
-}
-.bot-broker-orders li:last-child { border-bottom: 0; }
-.bot-broker-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-.bot-broker-inline { font-size: 10px; color: var(--muted-2); white-space: nowrap; }
-.bot-scan-live { flex: none; align-self: center; }
-.bot-broker-btn { height: 28px; padding: 0 9px; font-size: 9.5px; }
 
 .broker-ticket-lede { font-size: 13px; color: var(--text-2); line-height: 1.55; }
 .broker-ticket-grid {
@@ -2181,17 +2106,12 @@ body::after {
 .broker-send { width: 100%; }
 
 :root[data-theme="light"] .bot-stat { background: rgba(20, 32, 51, .035); }
-:root[data-theme="light"] .bot-broker-stats > div { background: rgba(20, 32, 51, .035); }
 
 @media (max-width: 1080px) {
   .bot-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .bot-broker-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .bot-broker-form { grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr); }
-  .bot-broker-form .btn { grid-column: 1 / -1; justify-self: start; }
 }
 @media (max-width: 960px) {
   .bot-stats-side .spark { width: 160px; }
-  .bot-broker-split { grid-template-columns: 1fr; gap: 14px; }
 }
 @media (max-width: 700px) {
   .bot-head { padding-top: 24px; }
@@ -2201,17 +2121,12 @@ body::after {
   .bot-stats-head { flex-wrap: wrap; }
   .bot-stats-side { width: 100%; justify-content: space-between; }
   .bot-log-time { width: 98px; }
-  .bot-broker-form { grid-template-columns: 1fr; }
-  .bot-broker-form .btn { width: 100%; }
-  .bot-broker-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bot-scan-row { flex-wrap: wrap; }
-  .bot-scan-live { width: 100%; margin-left: 66px; }
   .broker-ticket-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 520px) {
   .bot-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bot-scan-num { display: none; }
-  .bot-scan-live { margin-left: 0; }
 }
 
 /* ---------------- Ranked stock setups ---------------- */

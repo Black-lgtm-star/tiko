@@ -355,7 +355,7 @@
         updatePips();
         var decimals = quote.rate < 1 ? 6 : 4;
         var sourceKeys = (quote.providers || []).filter(function (p) { return !p.excluded; }).map(function (p) { return p.key; });
-        status.textContent = T('dash.fx.updated', { time: quote.refreshedAt || U.fmtTime(quote.retrievedAt, lang()), zone: quote.timezone || 'UTC' });
+        status.textContent = T('dash.fx.updated', { time: quote.refreshedAt || U.fmtTime(quote.retrievedAt, lang()), zone: quote.timezone || 'UTC', provider: quote.provider || 'Frankfurter' });
         reading.innerHTML = '<div class="forex-rate-line"><span class="forex-pair mono">1 ' + U.esc(quote.from) + ' =</span>' +
           '<strong class="num">' + U.esc(U.fmtNum(quote.rate, lang(), decimals)) + '</strong>' +
           '<span class="forex-target mono">' + U.esc(quote.to) + '</span>' + ui.modeBadge({ dataMode: 'live' }) + '</div>' +

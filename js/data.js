@@ -2,6 +2,8 @@
    live crypto: /api/crypto, a same-origin proxy for CoinGecko (no key)
    live stocks: /api/quote, a same-origin proxy for Yahoo Finance (no key)
                 Alpha Vantage remains an optional keyed fallback
+   live forex:  Alpha Vantage CURRENCY_EXCHANGE_RATE when a key is set,
+                otherwise Frankfurter reference rates
    When a provider is offline the caller gets an error and the UI says so. */
 (function (TA) {
   'use strict';
@@ -180,6 +182,38 @@
     return null;
   }
 
+  function liveAvForexRate(from, to, key) {
+    var apikey = String(key || '').trim();
+    if (!apikey) return Promise.reject(DataError('auth', 'Missing Alpha Vantage key'));
+    return cached('av:fx:' + from + ':' + to + ':' + apikey.slice(-4), 5 * 60 * 1000, function () {
+      var url = AV + '?function=CURRENCY_EXCHANGE_RATE&from_currency=' + encodeURIComponent(from) +
+        '&to_currency=' + encodeURIComponent(to) + '&apikey=' + encodeURIComponent(apikey);
+      return fetchJSON(url).then(function (j) {
+        var err = avError(j); if (err) throw err;
+        var q = j['Realtime Currency Exchange Rate'];
+        if (!q) throw DataError('empty', 'No FX quote');
+        var rate = parseFloat(q['5. Exchange Rate']);
+        if (!U.isNum(rate) || rate <= 0) throw DataError('empty', 'No FX quote');
+        var bid = parseFloat(q['8. Bid Price']);
+        var ask = parseFloat(q['9. Ask Price']);
+        var refreshedAt = String(q['6. Last Refreshed'] || '');
+        return {
+          from: String(q['1. From_Currency Code'] || from).toUpperCase(),
+          to: String(q['3. To_Currency Code'] || to).toUpperCase(),
+          rate: rate,
+          bid: U.isNum(bid) && bid > 0 ? bid : null,
+          ask: U.isNum(ask) && ask > 0 ? ask : null,
+          refreshedAt: refreshedAt,
+          providers: [{ key: 'ALPHAVANTAGE', date: refreshedAt.slice(0, 10) || new Date().toISOString().slice(0, 10), rate: rate }],
+          timezone: q['7. Time Zone'] || 'UTC',
+          retrievedAt: Date.now(),
+          provider: 'Alpha Vantage',
+          providerUrl: 'https://www.alphavantage.co/'
+        };
+      });
+    });
+  }
+
   function liveForexCurrencies() {
     return cached('frankfurter:currencies:all', 24 * 60 * 60 * 1000, function () {
       return fetchJSON(FX + '/currencies?scope=all').then(function (rows) {
@@ -238,6 +272,8 @@
   }
 
   function liveForexRates(base, quotes, provider) {
+    // The Markets table stays on Frankfurter: Alpha Vantage quotes one pair per
+    // call, which would exhaust a free key's daily cap.
     var currency = String(base || 'USD').trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) return Promise.reject(DataError('unsupported', 'Unsupported base currency'));
     var targets = Array.isArray(quotes) ? quotes.map(function (code) { return String(code).trim().toUpperCase(); }) : [];
@@ -483,11 +519,18 @@
         return Promise.reject(DataError('unsupported', 'Unsupported currency pair'));
       }
       if (isOffline()) return Promise.reject(offlineError('The device is offline'));
-      return liveForexCurrencies().then(function (currencies) {
-        var supported = currencies.some(function (c) { return c.code === base; }) && currencies.some(function (c) { return c.code === quote; });
-        if (!supported) throw DataError('unsupported', 'Unsupported currency pair');
-        return liveForexRate(base, quote, provider);
-      });
+      function frankfurter() {
+        return liveForexCurrencies().then(function (currencies) {
+          var supported = currencies.some(function (c) { return c.code === base; }) && currencies.some(function (c) { return c.code === quote; });
+          if (!supported) throw DataError('unsupported', 'Unsupported currency pair');
+          return liveForexRate(base, quote, provider);
+        });
+      }
+      var settings = TA.store.settings();
+      if (settings.avKey && !String(provider || '').trim()) {
+        return liveAvForexRate(base, quote, settings.avKey).catch(frankfurter);
+      }
+      return frankfurter();
     },
 
     getForexCurrencies: liveForexCurrencies,

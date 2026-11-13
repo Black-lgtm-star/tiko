@@ -1,4 +1,4 @@
-/* views/bot.js — AI paper-trading dashboard with an optional, confirmation-gated Alpaca connection. */
+/* views/bot.js — AI paper-trading dashboard, simulation only. */
 (function (TA) {
   'use strict';
   var U = TA.util;
@@ -9,175 +9,9 @@
   var FALLBACK = ['BTC', 'ETH', 'AAPL', 'NVDA', 'SPY'];
   var MAX_UNIVERSE = 16;
   var AUTO_SCAN_MS = 60 * 1000;
-  var LIVE_SCAN_MAX_MS = 60 * 60 * 1000;
   var BOUND = '__botBound';
   var scanning = false;
   var scanTimer = null;
-  var broker = { loading: false, error: null, account: null, positions: [], orders: [], at: null };
-
-  function brokerKeys() {
-    return TA.broker ? TA.broker.read() : null;
-  }
-
-  function brokerErrorText(err) {
-    var code = err && err.code;
-    var known = ['badKeys', 'auth', 'timeout', 'network', 'blocked', 'order', 'symbol', 'assetClass', 'side', 'levels', 'size', 'confirm', 'sample', 'stale'];
-    if (code && known.indexOf(code) >= 0) return T('bot.broker.err.' + code);
-    return T('bot.broker.err.http');
-  }
-
-  function resetBroker() {
-    broker.loading = false;
-    broker.error = null;
-    broker.account = null;
-    broker.positions = [];
-    broker.orders = [];
-    broker.at = null;
-  }
-
-  function refreshBroker(root, quiet) {
-    var keys = brokerKeys();
-    if (!keys) {
-      resetBroker();
-      if (!quiet) paint(root);
-      return;
-    }
-    if (broker.loading) return;
-    broker.loading = true;
-    if (!quiet) paint(root);
-    TA.broker.summary(keys).then(function (out) {
-      broker.loading = false;
-      broker.error = null;
-      broker.account = out.account;
-      broker.positions = out.positions;
-      broker.orders = out.orders;
-      broker.at = Date.now();
-      if (stillHere(root)) paint(root);
-    }).catch(function (err) {
-      broker.loading = false;
-      broker.error = err && err.code ? err.code : 'http';
-      broker.account = null;
-      broker.positions = [];
-      broker.orders = [];
-      broker.at = Date.now();
-      if (stillHere(root)) paint(root);
-    });
-  }
-
-  function connectBroker(root, form) {
-    var keyId = form.querySelector('[data-broker-key]');
-    var secret = form.querySelector('[data-broker-secret]');
-    var mode = form.querySelector('[data-broker-mode]');
-    var input = {
-      keyId: keyId ? keyId.value.trim() : '',
-      secretKey: secret ? secret.value.trim() : '',
-      mode: mode ? mode.value : 'live'
-    };
-    if (!input.keyId || !input.secretKey) {
-      broker.error = 'badKeys';
-      paint(root);
-      return;
-    }
-    broker.loading = true;
-    broker.error = null;
-    paint(root);
-    TA.broker.connect(input).then(function () {
-      broker.loading = false;
-      ui.toast(T('bot.broker.toast.connected', { mode: input.mode === 'paper' ? T('bot.broker.mode.paper') : T('bot.broker.mode.live') }));
-      refreshBroker(root, { quiet: true });
-    }).catch(function (err) {
-      broker.loading = false;
-      broker.error = err && err.code ? err.code : 'http';
-      if (stillHere(root)) paint(root);
-      ui.toast(brokerErrorText(err));
-    });
-  }
-
-  function disconnectBroker(root) {
-    TA.broker.clear();
-    resetBroker();
-    ui.toast(T('bot.broker.toast.disconnected'));
-    paint(root);
-  }
-
-  function ticketRow(label, value, toneClass) {
-    return '<div class="broker-ticket-row"><span>' + U.esc(label) + '</span>' +
-      '<b class="' + (toneClass || '') + '">' + U.esc(value) + '</b></div>';
-  }
-
-  function openTicket(root, row, done) {
-    if (!row || row.action !== 'open' || row.assetClass !== 'stock' || row.side !== 'long') return false;
-    var keys = brokerKeys();
-    if (!keys) { ui.toast(T('bot.broker.err.noKeys')); return false; }
-    if (row.dataMode !== 'live') { ui.toast(T('bot.broker.err.sample')); return false; }
-    var scan = readState().lastScan;
-    if (!scan || !U.isNum(scan.at) || Date.now() - scan.at > LIVE_SCAN_MAX_MS) {
-      ui.toast(T('bot.broker.err.stale')); return false;
-    }
-    if (!broker.account) { ui.toast(T('bot.broker.err.notReady')); return false; }
-    var trade = TA.broker.canTrade(broker.account);
-    if (!trade.ok) { ui.toast(T('bot.broker.err.blocked')); return false; }
-    var settings = TA.store.settings();
-    var entry = row.entry || row.price;
-    var sized = TA.tradeplan.size({ entry: entry, stop: row.stop, target: row.target, sizeAllowed: true }, settings);
-    var units = sized ? sized.units : 0;
-    if (U.isNum(broker.account.buyingPower) && U.isNum(entry) && entry > 0) {
-      units = Math.min(units, Math.floor(broker.account.buyingPower / entry));
-    }
-    var ticket = TA.broker.buildOrder({
-      symbol: row.symbol,
-      assetClass: row.assetClass,
-      side: row.side,
-      entry: entry,
-      stop: row.stop,
-      target: row.target,
-      units: units
-    });
-    if (ticket.error) { ui.toast(T('bot.broker.err.' + ticket.error)); return false; }
-    var live = keys.mode === 'live';
-    var body = '<p class="broker-ticket-lede">' + U.esc(T(live ? 'bot.broker.confirm.ledeLive' : 'bot.broker.confirm.ledePaper')) + '</p>' +
-      '<div class="broker-ticket-grid">' +
-        ticketRow(T('bot.broker.ticket.symbol'), ticket.order.symbol) +
-        ticketRow(T('bot.broker.ticket.side'), T('bot.broker.ticket.buy')) +
-        ticketRow(T('bot.broker.ticket.qty'), ticket.qty + ' ' + T('bot.broker.ticket.shares')) +
-        ticketRow(T('bot.broker.ticket.type'), T('bot.broker.ticket.market')) +
-        ticketRow(T('bot.broker.ticket.stop'), U.fmtPrice(ticket.stop, '$', lang())) +
-        ticketRow(T('bot.broker.ticket.target'), U.fmtPrice(ticket.target, '$', lang())) +
-        ticketRow(T('bot.broker.ticket.risk'), money(ticket.risk), 'down') +
-      '</div>' +
-      '<div class="disclaimer broker-ticket-warn">' + ui.icon('warning', 15) + '<div>' +
-        U.esc(T(live ? 'bot.broker.confirm.warnLive' : 'bot.broker.confirm.warnPaper')) + '</div></div>' +
-      '<label class="broker-ack"><input type="checkbox" data-broker-ack> ' +
-        U.esc(T(live ? 'bot.broker.confirm.ackLive' : 'bot.broker.confirm.ackPaper')) + '</label>' +
-      '<p class="tiny broker-send-err" data-broker-send-err></p>' +
-      '<button class="btn btn-danger broker-send" type="button" data-broker-send disabled>' +
-        U.esc(T('bot.broker.confirm.send')) + '</button>';
-    var close = ui.openModal({
-      title: T(live ? 'bot.broker.confirm.titleLive' : 'bot.broker.confirm.titlePaper'),
-      body: body,
-      actions: [{ label: T('bot.broker.confirm.cancel') }]
-    });
-    var ack = document.querySelector('#modal-root [data-broker-ack]');
-    var send = document.querySelector('#modal-root [data-broker-send]');
-    var errEl = document.querySelector('#modal-root [data-broker-send-err]');
-    if (!ack || !send) return true;
-    ack.addEventListener('change', function () { send.disabled = !ack.checked; });
-    send.addEventListener('click', function () {
-      if (!ack.checked || send.disabled) return;
-      send.disabled = true;
-      errEl.textContent = '';
-      TA.broker.submit(brokerKeys(), ticket.order, { confirm: true }).then(function (res) {
-        close();
-        if (done) done(res);
-        ui.toast(T('bot.broker.toast.sent', { status: (res && res.status) || 'accepted' }));
-        refreshBroker(root, { quiet: true });
-      }).catch(function (err) {
-        send.disabled = false;
-        errEl.textContent = brokerErrorText(err);
-      });
-    });
-    return true;
-  }
 
   function readState() {
     return TA.bot.normalize(TA.store.botState ? TA.store.botState() : null);
@@ -316,7 +150,6 @@
       var proposed = out.events.filter(function (e) { return e.type === 'propose'; }).length;
       ui.toast(T('bot.toast.scan', { opened: opened, closed: closed, proposed: proposed }));
       paint(root);
-      maybeAutoLive(root, out);
     }).catch(function () {
       scanning = false;
       if (!stillHere(root)) return;
@@ -325,69 +158,12 @@
     });
   }
 
-  function liveAutoReady() {
-    var keys = brokerKeys();
-    if (!keys || keys.mode !== 'live') return false;
-    if (!TA.broker.readAutopilot()) return false;
-    if (!broker.account) return false;
-    return TA.broker.canTrade(broker.account).ok;
-  }
-
-  // Session-scoped live autopilot: at most one confirmed-at-grant order per
-  // scan, long U.S. stocks only, live data only, sized by the saved settings.
-  function maybeAutoLive(root, out) {
-    if (!liveAutoReady()) return;
-    var row = (out.decisions || []).filter(function (d) {
-      return d.action === 'open' && d.assetClass === 'stock' && d.side === 'long' && d.dataMode === 'live';
-    })[0];
-    if (!row) return;
-    var keys = brokerKeys();
-    var entry = row.entry || row.price;
-    var sized = TA.tradeplan.size({ entry: entry, stop: row.stop, target: row.target, sizeAllowed: true }, TA.store.settings());
-    var units = sized ? sized.units : 0;
-    if (U.isNum(broker.account.buyingPower) && U.isNum(entry) && entry > 0) {
-      units = Math.min(units, Math.floor(broker.account.buyingPower / entry));
-    }
-    var ticket = TA.broker.buildOrder({
-      symbol: row.symbol, assetClass: row.assetClass, side: row.side,
-      entry: entry, stop: row.stop, target: row.target, units: units
-    });
-    if (ticket.error) {
-      logLive(row.symbol, 'error', T('bot.broker.err.' + ticket.error));
-      if (stillHere(root)) { ui.toast(T('bot.broker.err.' + ticket.error)); paint(root); }
-      return;
-    }
-    TA.broker.submit(keys, ticket.order, { confirm: true }).then(function (res) {
-      logLive(row.symbol, 'sent', (res && res.status) || 'accepted');
-      if (!stillHere(root)) return;
-      ui.toast(T('bot.broker.auto.sent', { symbol: row.symbol }));
-      paint(root);
-      refreshBroker(root, { quiet: true });
-    }).catch(function (err) {
-      logLive(row.symbol, 'error', brokerErrorText(err));
-      if (!stillHere(root)) return;
-      ui.toast(T('bot.broker.auto.failed', { symbol: row.symbol }));
-      paint(root);
-    });
-  }
-
-  function logLive(symbol, status, detail) {
-    var state = readState();
-    state.log.unshift({
-      ts: Date.now(), type: 'live', symbol: symbol, side: 'long',
-      status: detail, outcome: status
-    });
-    writeState(state);
-  }
-
   function toggleBot(root) {
     var state = readState();
     if (state.enabled) {
       state = TA.bot.stop(state);
       state.log.unshift({ ts: Date.now(), type: 'stop' });
       writeState(state);
-      // Kill switch: pausing also revokes any live autopilot grant.
-      if (TA.broker && TA.broker.readAutopilot()) TA.broker.clearAutopilot();
       ui.toast(T('bot.toast.paused'));
       paint(root);
       return;
@@ -427,19 +203,9 @@
   }
 
   function headerHtml(state) {
-    var keys = brokerKeys();
-    var auto = TA.broker && TA.broker.readAutopilot();
     var badge = state.enabled
       ? '<span class="badge badge-live"><i class="dot pulse"></i>' + U.esc(T('bot.badge.on')) + '</span>'
       : '<span class="badge badge-neutral">' + U.esc(T('bot.badge.off')) + '</span>';
-    var liveBadge = keys
-      ? '<span class="bot-broker-badge ' + (keys.mode === 'live' ? 'live' : 'paper') + '">' +
-          (keys.mode === 'live' ? ui.icon('pulse', 11) : ui.icon('shield', 11)) +
-          U.esc(T(keys.mode === 'live' ? 'bot.broker.badge.live' : 'bot.broker.badge.paper')) + '</span>'
-      : '';
-    var autoBadge = auto
-      ? '<span class="bot-broker-badge live"><i class="dot pulse"></i>' + U.esc(T('bot.auto.badge')) + '</span>'
-      : '';
     var watchCount = TA.store.watchlist().length;
     var scopeCount = universe(state).length;
     var scope = T(scopeCount === 1 ? 'bot.rule.watchlistOne' : 'bot.rule.watchlist', { n: scopeCount });
@@ -455,7 +221,7 @@
         '<div class="bot-title-row"><h1>' + U.esc(T('bot.title')) + '</h1>' +
           '<span class="bot-sim">' + ui.icon('sparkles', 12) + U.esc(T('bot.persona.name')) + '</span></div>' +
         '<p class="bot-lede">' + U.esc(T('bot.lede')) + '</p>' +
-        '<div class="bot-meta">' + badge + liveBadge + autoBadge + '<span class="bot-meta-text">' + U.esc(statusText(state)) + '</span></div>' +
+        '<div class="bot-meta">' + badge + '<span class="bot-meta-text">' + U.esc(statusText(state)) + '</span></div>' +
         '<p class="tiny muted bot-scope">' + U.esc(scope) + '</p>' +
       '</div>' +
       '<div class="bot-actions">' +
@@ -470,8 +236,8 @@
       '</div>' +
     '</header>' +
     '<div class="disclaimer bot-disclaimer">' + ui.icon('warning', 15) +
-      '<div><b>' + U.esc(T(keys ? 'bot.broker.discTitle' : 'bot.badge.sim')) + '.</b> ' +
-      U.esc(T(keys ? (auto ? 'bot.disclaimer.autopilot' : 'bot.disclaimer.live') : 'bot.disclaimer')) + '</div></div>';
+      '<div><b>' + U.esc(T('bot.badge.sim')) + '.</b> ' +
+      U.esc(T('bot.disclaimer')) + '</div></div>';
   }
 
   function tile(label, value, note, toneClass) {
@@ -517,104 +283,6 @@
       '</div></section>';
   }
 
-  function brokerCard() {
-    var keys = brokerKeys();
-    var connected = !!keys;
-    var live = connected && keys.mode === 'live';
-    var acct = broker.account;
-    var trade = connected && acct ? TA.broker.canTrade(acct) : { ok: false, reason: 'missing' };
-    var head = '<div class="card-head bot-broker-head">' +
-      '<div><h2>' + ui.icon('layers', 14) + U.esc(T('bot.broker.title')) + '</h2>' +
-      '<p class="tiny muted">' + U.esc(T('bot.broker.subtitle')) + '</p></div>' +
-      (connected
-        ? '<span class="bot-broker-badge ' + (live ? 'live' : 'paper') + '">' +
-            (live ? ui.icon('pulse', 11) : ui.icon('shield', 11)) +
-            U.esc(T(live ? 'bot.broker.badge.live' : 'bot.broker.badge.paper')) + '</span>'
-        : '<span class="badge badge-neutral">' + U.esc(T('bot.broker.off')) + '</span>') +
-    '</div>';
-
-    var body;
-    if (!connected) {
-      body = '<p class="bot-broker-lede">' + U.esc(T('bot.broker.disconnected')) + '</p>' +
-        '<form class="bot-broker-form" data-broker-form>' +
-          '<label class="bot-field"><span>' + U.esc(T('bot.broker.mode')) + '</span>' +
-            '<select class="input" data-broker-mode>' +
-              '<option value="live" selected>' + U.esc(T('bot.broker.mode.live')) + '</option>' +
-              '<option value="paper">' + U.esc(T('bot.broker.mode.paper')) + '</option>' +
-            '</select></label>' +
-          '<label class="bot-field"><span>' + U.esc(T('bot.broker.keyId')) + '</span>' +
-            '<input class="input" data-broker-key autocomplete="off" spellcheck="false" placeholder="PK…"></label>' +
-          '<label class="bot-field"><span>' + U.esc(T('bot.broker.secret')) + '</span>' +
-            '<input class="input" type="password" data-broker-secret autocomplete="new-password" spellcheck="false"></label>' +
-          '<button class="btn btn-danger" type="submit" data-broker-connect' + (broker.loading ? ' disabled' : '') + '>' +
-            U.esc(T(broker.loading ? 'bot.broker.connecting' : 'bot.broker.connect')) + '</button>' +
-        '</form>' +
-        (broker.error ? '<p class="bot-broker-error">' + U.esc(brokerErrorText({ code: broker.error })) + '</p>' : '') +
-        '<p class="tiny muted bot-broker-note">' + U.esc(T('bot.broker.keysNote')) + '</p>';
-    } else {
-      var stats = acct
-        ? '<div class="bot-broker-stats">' +
-            '<div><span>' + U.esc(T('bot.broker.status')) + '</span><b>' + U.esc(acct.status || '—') + '</b></div>' +
-            '<div><span>' + U.esc(T('bot.broker.equity')) + '</span><b>' + U.esc(money(acct.equity)) + '</b></div>' +
-            '<div><span>' + U.esc(T('bot.broker.buyingPower')) + '</span><b>' + U.esc(money(acct.buyingPower)) + '</b></div>' +
-            '<div><span>' + U.esc(T('bot.broker.cash')) + '</span><b>' + U.esc(money(acct.cash)) + '</b></div>' +
-            '<div><span>' + U.esc(T('bot.broker.account')) + '</span><b>' + U.esc(acct.accountNumber ? '•••• ' + String(acct.accountNumber).slice(-4) : '—') + '</b></div>' +
-          '</div>'
-        : '<p class="tiny muted">' + U.esc(broker.loading ? T('bot.broker.loading') : T('bot.broker.noAccount')) + '</p>';
-
-      var positions = broker.positions.length
-        ? '<div class="bot-table-wrap"><table class="bot-table bot-broker-table"><thead><tr>' +
-            '<th>' + U.esc(T('bot.broker.col.symbol')) + '</th><th>' + U.esc(T('bot.broker.col.side')) + '</th>' +
-            '<th>' + U.esc(T('bot.broker.col.qty')) + '</th><th>' + U.esc(T('bot.broker.col.value')) + '</th>' +
-            '<th>' + U.esc(T('bot.broker.col.pnl')) + '</th></tr></thead><tbody>' +
-            broker.positions.map(function (p) {
-              return '<tr><td><b>' + U.esc(p.symbol || '—') + '</b></td>' +
-                '<td class="' + (p.side === 'short' ? 'down' : 'up') + '">' + U.esc(p.side === 'short' ? T('bot.side.short') : T('bot.side.long')) + '</td>' +
-                '<td>' + U.esc(U.isNum(p.qty) ? String(p.qty) : '—') + '</td>' +
-                '<td>' + U.esc(money(p.marketValue)) + '</td>' +
-                '<td class="' + tone(p.unrealizedPl) + '">' + U.esc(signedMoney(p.unrealizedPl)) + '</td></tr>';
-            }).join('') +
-          '</tbody></table></div>'
-        : '<div class="empty bot-broker-empty">' + U.esc(T('bot.broker.positionsEmpty')) + '</div>';
-
-      var orders = broker.orders.length
-        ? '<ul class="bot-broker-orders">' + broker.orders.slice(0, 8).map(function (o) {
-            return '<li><b>' + U.esc(o.symbol || '—') + '</b>' +
-              '<span class="bot-side ' + (o.side === 'sell' ? 'down' : 'up') + '">' + U.esc(o.side || '—') + '</span>' +
-              '<span class="tiny muted">' + U.esc((o.qty == null ? '—' : o.qty) + ' · ' + (o.type || 'order') + ' · ' + (o.status || '')) + '</span></li>';
-          }).join('') + '</ul>'
-        : '<div class="empty bot-broker-empty">' + U.esc(T('bot.broker.ordersEmpty')) + '</div>';
-
-      body = '<div class="disclaimer bot-broker-warn">' + ui.icon('warning', 15) + '<div>' +
-          U.esc(T(live ? 'bot.broker.liveWarn' : 'bot.broker.paperWarn')) + '</div></div>' +
-        stats +
-        (broker.error ? '<p class="bot-broker-error">' + U.esc(brokerErrorText({ code: broker.error })) + '</p>' : '') +
-        (acct && !trade.ok ? '<p class="bot-broker-error">' + U.esc(T('bot.broker.blockedNote')) + '</p>' : '') +
-        '<div class="bot-broker-split">' +
-          '<div><h3>' + U.esc(T('bot.broker.positions')) + '</h3>' + positions + '</div>' +
-          '<div><h3>' + U.esc(T('bot.broker.orders')) + '</h3>' + orders + '</div>' +
-        '</div>' +
-        '<div class="bot-broker-actions">' +
-          '<button class="btn btn-sm btn-ghost" type="button" data-broker-refresh' + (broker.loading ? ' disabled' : '') + '>' +
-            ui.icon('refresh', 12) + U.esc(T(broker.loading ? 'bot.broker.loading' : 'bot.broker.refresh')) + '</button>' +
-          '<button class="btn btn-sm btn-ghost" type="button" data-broker-disconnect>' + U.esc(T('bot.broker.disconnect')) + '</button>' +
-        '</div>' +
-        '<p class="tiny muted bot-broker-note">' + U.esc(T('bot.broker.sessionNote')) + '</p>';
-    }
-
-    return '<section class="card span-12 edge-bear bot-card bot-broker-card" aria-labelledby="bot-broker-title">' +
-      head.replace('<h2>', '<h2 id="bot-broker-title">') +
-      '<div class="card-body">' + body + '</div></section>';
-  }
-
-  function canSendProposal(p) {
-    if (!p || !brokerKeys() || !broker.account) return false;
-    if (p.assetClass !== 'stock' || p.side !== 'long' || p.dataMode !== 'live') return false;
-    var scan = readState().lastScan;
-    if (!scan || !U.isNum(scan.at) || Date.now() - scan.at > LIVE_SCAN_MAX_MS) return false;
-    return TA.broker.canTrade(broker.account).ok;
-  }
-
   function proposalRow(p) {
     var mins = U.isNum(p.expiresAt) ? Math.max(0, Math.round((p.expiresAt - Date.now()) / 60000)) : null;
     var id = U.attr(p.id);
@@ -634,10 +302,6 @@
       '<div class="bot-pending-actions">' +
         '<button class="btn btn-xs btn-primary" type="button" data-pending-approve="' + id + '">' +
           U.esc(T('bot.pending.approve')) + '</button>' +
-        (canSendProposal(p)
-          ? '<button class="btn btn-xs btn-danger" type="button" data-pending-live="' + id + '">' +
-              ui.icon('warning', 11) + U.esc(T('bot.pending.live')) + '</button>'
-          : '') +
         '<button class="btn btn-xs btn-ghost" type="button" data-pending-decline="' + id + '">' +
           U.esc(T('bot.pending.decline')) + '</button>' +
       '</div>' +
@@ -665,36 +329,16 @@
   }
 
   function personaCard(state, summary) {
-    var keys = brokerKeys();
-    var auto = TA.broker && TA.broker.readAutopilot();
-    var live = keys && keys.mode === 'live';
     var mood = moodText(state, summary);
     var moodTone = !state.enabled ? 'flat' : summary.totalR > 0 ? 'up' : summary.totalR < 0 ? 'down' : 'flat';
     var quip = T(TA.bot.voice('mood', state.scans + Math.floor(Date.now() / 86400000)));
     var options = [
       { id: 'ask', key: 'bot.auto.mode.ask' },
-      { id: 'paper', key: 'bot.auto.mode.paper' },
       { id: 'auto', key: 'bot.auto.mode.auto' }
     ].map(function (o) {
       return '<option value="' + o.id + '"' + (state.approval === o.id ? ' selected' : '') + '>' +
         U.esc(T(o.key)) + '</option>';
     }).join('');
-    var autoLive = live
-      ? (auto
-          ? '<div class="bot-auto-live on">' +
-              '<div><b>' + ui.icon('pulse', 12) + ' ' + U.esc(T('bot.auto.liveOn')) + '</b>' +
-              '<p class="tiny muted">' + U.esc(T('bot.auto.liveOnNote', {
-                time: U.fmtDateTime(auto.at, lang())
-              })) + '</p></div>' +
-              '<button class="btn btn-sm btn-ghost" type="button" data-bot-revoke>' + U.esc(T('bot.auto.revoke')) + '</button>' +
-            '</div>'
-          : '<div class="bot-auto-live">' +
-              '<div><b>' + U.esc(T('bot.auto.liveOff')) + '</b>' +
-              '<p class="tiny muted">' + U.esc(T('bot.auto.liveOffNote')) + '</p></div>' +
-              '<button class="btn btn-sm btn-danger" type="button" data-bot-authorize>' +
-                ui.icon('warning', 11) + U.esc(T('bot.auto.authorize')) + '</button>' +
-            '</div>')
-      : '<p class="tiny muted bot-auto-note">' + U.esc(T('bot.auto.needLive')) + '</p>';
     var modeNote = T('bot.auto.note.' + state.approval);
     return '<section class="card span-5 edge-magenta bot-card bot-persona-card" aria-labelledby="bot-persona-title">' +
       '<div class="card-head bot-persona-head">' +
@@ -713,7 +357,6 @@
         '<label class="bot-check"><input type="checkbox" data-bot-stocks' + (state.autoStocks !== false ? ' checked' : '') + '> ' +
           '<span><b>' + U.esc(T('bot.auto.stocks')) + '</b>' +
           '<small class="tiny muted">' + U.esc(T('bot.auto.stocksNote')) + '</small></span></label>' +
-        autoLive +
       '</div></section>';
   }
 
@@ -721,56 +364,7 @@
     var state = readState();
     state.approval = TA.bot.approvals.indexOf(value) >= 0 ? value : 'ask';
     writeState(state);
-    // Choosing a mode that promises to ask revokes any live autopilot grant.
-    if (state.approval !== 'auto' && TA.broker && TA.broker.readAutopilot()) TA.broker.clearAutopilot();
     ui.toast(T('bot.auto.toast.' + state.approval));
-    paint(root);
-  }
-
-  function confirmLiveAutopilot(root) {
-    var keys = brokerKeys();
-    if (!keys || keys.mode !== 'live') { ui.toast(T('bot.auto.err.liveOnly')); return; }
-    var body = '<p class="broker-ticket-lede">' + U.esc(T('bot.auto.modal.lede')) + '</p>' +
-      '<ul class="bot-auto-list">' +
-        ['1', '2', '3', '4'].map(function (n) {
-          return '<li>' + U.esc(T('bot.auto.modal.' + n)) + '</li>';
-        }).join('') +
-      '</ul>' +
-      '<div class="disclaimer broker-ticket-warn">' + ui.icon('warning', 15) + '<div>' +
-        U.esc(T('bot.auto.modal.warn')) + '</div></div>' +
-      '<label class="broker-ack"><input type="checkbox" data-auto-ack> ' +
-        U.esc(T('bot.auto.modal.ack')) + '</label>' +
-      '<button class="btn btn-danger broker-send" type="button" data-auto-enable disabled>' +
-        U.esc(T('bot.auto.modal.enable')) + '</button>';
-    var close = ui.openModal({
-      title: T('bot.auto.modal.title'),
-      body: body,
-      actions: [{ label: T('bot.auto.modal.cancel') }]
-    });
-    var ack = document.querySelector('#modal-root [data-auto-ack]');
-    var enable = document.querySelector('#modal-root [data-auto-enable]');
-    if (!ack || !enable) return;
-    ack.addEventListener('change', function () { enable.disabled = !ack.checked; });
-    enable.addEventListener('click', function () {
-      if (!ack.checked || enable.disabled) return;
-      if (!TA.broker.grantAutopilot(Date.now())) { ui.toast(T('bot.auto.err.liveOnly')); return; }
-      var state = readState();
-      state.approval = 'auto';
-      writeState(state);
-      close();
-      ui.toast(T('bot.auto.toast.granted'));
-      paint(root);
-    });
-  }
-
-  function revokeAutopilot(root) {
-    if (TA.broker) TA.broker.clearAutopilot();
-    var state = readState();
-    if (state.approval === 'auto') {
-      state.approval = 'paper';
-      writeState(state);
-    }
-    ui.toast(T('bot.auto.toast.revoked'));
     paint(root);
   }
 
@@ -787,26 +381,6 @@
     writeState(out.state);
     ui.toast(T(out.error ? 'bot.pending.err.missing' : 'bot.pending.toast.declined'));
     paint(root);
-  }
-
-  function sendProposalLive(root, id) {
-    var state = readState();
-    var p = state.pending.filter(function (x) { return x.id === id; })[0];
-    if (!p) { ui.toast(T('bot.pending.err.missing')); return; }
-    var opened = openTicket(root, {
-      action: 'open', symbol: p.symbol, assetClass: p.assetClass, side: p.side,
-      dataMode: p.dataMode, entry: p.entry, stop: p.stop, target: p.target, rr: p.rr
-    }, function (res) {
-      var next = readState();
-      next.pending = next.pending.filter(function (x) { return x.id !== id; });
-      next.log.unshift({
-        ts: Date.now(), type: 'live', symbol: p.symbol, side: p.side,
-        status: (res && res.status) || 'accepted', outcome: 'sent'
-      });
-      writeState(next);
-      paint(root);
-    });
-    if (!opened) ui.toast(T('bot.pending.err.live'));
   }
 
   function positionsCard(state) {
@@ -841,31 +415,12 @@
       '<div class="card-body">' + body + '</div></section>';
   }
 
-  function liveAction(d, index, state) {
-    if (!brokerKeys() || d.action !== 'open') return '';
-    if (d.assetClass !== 'stock' || d.side !== 'long') {
-      return '<span class="bot-broker-inline">' + U.esc(T('bot.broker.unsupported')) + '</span>';
-    }
-    if (d.dataMode !== 'live') return '<span class="bot-broker-inline">' + U.esc(T('bot.broker.err.sample')) + '</span>';
-    var scan = state && state.lastScan;
-    if (!scan || !U.isNum(scan.at) || Date.now() - scan.at > LIVE_SCAN_MAX_MS) {
-      return '<span class="bot-broker-inline">' + U.esc(T('bot.broker.err.stale')) + '</span>';
-    }
-    if (!broker.account) return '<span class="bot-broker-inline">' + U.esc(T('bot.broker.notReady')) + '</span>';
-    if (!TA.broker.canTrade(broker.account).ok) {
-      return '<span class="bot-broker-inline">' + U.esc(T('bot.broker.err.blocked')) + '</span>';
-    }
-    return '<button class="btn btn-sm btn-danger bot-broker-btn" type="button" data-broker-order="' + index + '">' +
-      ui.icon('warning', 11) + U.esc(T('bot.broker.review')) + '</button>';
-  }
-
   function scanCard(state) {
     var scan = state.lastScan;
-    var rows = scan ? scan.decisions.slice(0, 10).map(function (d, i) {
+    var rows = scan ? scan.decisions.slice(0, 10).map(function (d) {
       var actKey = d.action === 'open' ? 'open' : d.action === 'watch' ? 'watch' : 'skip';
       var reason = T('bot.scan.reason.' + d.reason);
       var price = U.isNum(d.entry) ? d.entry : d.price;
-      var live = liveAction(d, i, state);
       var when = d.timing === 'now' || d.timing === 'armed'
         ? '<span class="bot-timing ' + d.timing + '">' + U.esc(T('bot.scan.timing.' + d.timing)) + '</span>'
         : '';
@@ -880,7 +435,6 @@
           '<span class="tiny muted">' + U.esc(U.isNum(d.rr) ? T('bot.scan.rr', { rr: d.rr.toFixed(1) }) : '') + '</span>' +
           (d.dataMode === 'sample' ? '<span class="bot-sample-tag">' + U.esc(T('badge.sample')) + '</span>' : '') +
         '</div>' +
-        (live ? '<div class="bot-scan-live">' + live + '</div>' : '') +
       '</li>';
     }).join('') : '';
     var body = rows
@@ -971,7 +525,6 @@
     return '<div class="wrap page bot-page" data-bot-view>' + headerHtml(state) +
       '<div class="dash-grid">' +
         statsCard(state, summary) +
-        brokerCard() +
         personaCard(state, summary) + pendingCard(state) +
         positionsCard(state) + scanCard(state) +
         closedCard(state) + rulesCard() +
@@ -992,29 +545,10 @@
       if (e.target.closest('[data-bot-toggle]')) { toggleBot(root); return; }
       if (e.target.closest('[data-bot-scan]')) { runScan(root); return; }
       if (e.target.closest('[data-bot-reset]')) { confirmReset(root); return; }
-      if (e.target.closest('[data-bot-authorize]')) { confirmLiveAutopilot(root); return; }
-      if (e.target.closest('[data-bot-revoke]')) { revokeAutopilot(root); return; }
-      if (e.target.closest('[data-broker-refresh]')) { refreshBroker(root); return; }
-      if (e.target.closest('[data-broker-disconnect]')) { disconnectBroker(root); return; }
       var approve = e.target.closest('[data-pending-approve]');
       if (approve) { approveProposal(root, approve.getAttribute('data-pending-approve')); return; }
       var decline = e.target.closest('[data-pending-decline]');
       if (decline) { declineProposal(root, decline.getAttribute('data-pending-decline')); return; }
-      var live = e.target.closest('[data-pending-live]');
-      if (live) { sendProposalLive(root, live.getAttribute('data-pending-live')); return; }
-      var ticket = e.target.closest('[data-broker-order]');
-      if (ticket) {
-        var scan = readState().lastScan;
-        var index = Number(ticket.getAttribute('data-broker-order'));
-        var row = scan && scan.decisions ? scan.decisions[index] : null;
-        openTicket(root, row);
-      }
-    });
-    root.addEventListener('submit', function (e) {
-      var form = e.target.closest('[data-broker-form]');
-      if (!form || !root.querySelector('[data-bot-view]')) return;
-      e.preventDefault();
-      connectBroker(root, form);
     });
     root.addEventListener('change', function (e) {
       if (!root.querySelector('[data-bot-view]')) return;
@@ -1061,7 +595,6 @@
     scheduleScans(root);
     var state = readState();
     if (state.enabled && (!state.lastScanAt || Date.now() - state.lastScanAt > AUTO_SCAN_MS)) runScan(root);
-    if (brokerKeys() && !broker.loading && (!broker.at || Date.now() - broker.at > 60000)) refreshBroker(root, { quiet: true });
   }
 
   TA.views = TA.views || {};

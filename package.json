@@ -7,6 +7,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/crypto-proxy.test.js tests/brokers.test.js tests/deriv.test.js tests/deriv-api.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/broker.test.js tests/recommend.test.js tests/sides.test.js"
+    "test": "node --test tests/access.test.js tests/access-requests.test.js tests/owner-codes.test.js tests/owner-password.test.js tests/purchases.test.js tests/tradeplan.test.js tests/copilot.test.js tests/chartread.test.js tests/overlay.test.js tests/market-notifications.test.js tests/quote-proxy.test.js tests/crypto-proxy.test.js tests/brokers.test.js tests/deriv.test.js tests/deriv-api.test.js tests/theme.test.js tests/session.test.js tests/bot.test.js tests/recommend.test.js tests/sides.test.js tests/fx-source.test.js"
   }
 }
